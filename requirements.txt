@@ -14,7 +14,7 @@ Các thư viện cần thiết (làm từng bước)
             py -3.11 --version
         Tạo môi trường ảo với python 3.11:
             py -3.11 -m venv .venv
-            source venv/Scripts/activate (của git Bash)
+            source .venv/Scripts/activate (của git Bash)
         Nếu thấy dòng lệnh thay đổi thành như vậy "(venv)" thì đã kích hoạt thành công môi trường ảo
         Nếu muốn tắt môi trường ảo thì gõ lệnh:
             deactivate
