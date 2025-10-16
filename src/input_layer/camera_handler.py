@@ -35,7 +35,7 @@ class CameraHandler(threading.Thread):
     Threaded camera grabber.
 
     Params:
-      src: int (camera index) or str (video file)
+      src: int (camera index) or str (video file) or None
       queue_size: max frames to buffer for consumer
       target_size: (w,h) to which frames are resized. If None, keep original
       color: "bgr" or "rgb" - color format returned to consumer
@@ -54,7 +54,7 @@ class CameraHandler(threading.Thread):
                  auto_reconnect: bool = True):
         super().__init__(daemon=True)
         self.src = src
-        self.queue: queue.Queue = queue.Queue(maxsize=queue_size)
+        self.queue = queue.Queue(maxsize=queue_size)
         self.target_size = target_size
         self.color = color.lower()
         assert self.color in ("rgb", "bgr")

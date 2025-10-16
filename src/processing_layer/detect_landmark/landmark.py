@@ -33,7 +33,7 @@ class FaceLandmarkDetector:
         self.mp_draw = mp.solutions.drawing_utils
         self.draw_spec = self.mp_draw.DrawingSpec(thickness=1, circle_radius=1, color=(0, 255, 0))
 
-    def detect(self, frame, draw=False) -> Tuple[List[Tuple[int, int, float]], np.ndarray]:
+    def detect(self, frame: np.ndarray, draw: bool = False) -> Tuple[List[Tuple[int, int, float]], np.ndarray]:
         """
         Phát hiện landmarks trên frame.
 
@@ -71,7 +71,7 @@ class FaceLandmarkDetector:
             print(f"MediaPipe detection error: {e}")
             return [], frame
 
-    def extract_important_points(self, landmarks) -> Optional[Dict[str, List[Tuple[int, int, float]]]]:
+    def extract_important_points(self, landmarks: List[Tuple[int, int, float]]) -> Optional[Dict[str, List[Tuple[int, int, float]]]]:
         """
         Lấy ra các điểm quan trọng cho các phép tính EAR, MAR, Head Pose.
         
@@ -86,7 +86,7 @@ class FaceLandmarkDetector:
 
         # Eye landmarks (6 points each for EAR calculation)
         left_eye_idx = [33, 160, 158, 133, 153, 144]      # Left eye contour
-        right_eye_idx = [263, 387, 385, 362, 380, 373]    # Right eye contour
+        right_eye_idx = [362, 385, 387, 263, 373, 380]    # Right eye contour
         
         # Mouth landmarks (6 points for MAR calculation)  
         mouth_idx = [13, 14, 78, 308, 82, 312]             # Mouth corners + top/bottom
@@ -96,10 +96,7 @@ class FaceLandmarkDetector:
         face_outline_idx = [10, 152, 234, 454]             # Face boundary points
 
         def get_points(idxs):
-            try:
-                return [landmarks[i] for i in idxs if i < len(landmarks)]
-            except (IndexError, TypeError):
-                return []
+            return [landmarks[i] for i in idxs if i < len(landmarks)]
 
         return {
             "left_eye": get_points(left_eye_idx),
