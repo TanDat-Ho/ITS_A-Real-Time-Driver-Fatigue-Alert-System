@@ -3,21 +3,20 @@ rule_based.py
 -----------------
 Rule-based Fatigue Detection Processor
 
-Tích hợp ba chỉ số EAR + MAR + Head Pose để đưa ra quyết định cuối cùng:
+Central state definition and decision making system integrating EAR + MAR + Head Pose:
 
-Tích hợp ba chỉ số (EAR + MAR + Head Pose):
-┌─────────────┬─────────────────────┬──────────────────────┐
-│ Biểu hiện   │ Điều kiện kết hợp   │ Nhận diện            │
-├─────────────┼─────────────────────┼──────────────────────┤
-│ Ngủ gật     │ EAR < 0.2 trong ≥1.5s│ Mắt nhắm lâu        │
-├─────────────┼─────────────────────┼──────────────────────┤
-│ Ngáp kéo dài│ MAR > 0.6 trong >1.2s│ Mệt mỏi             │
-├─────────────┼─────────────────────┼──────────────────────┤
-│ Cúi đầu     │ |pitch| ≤ 15° trong>1.5s│ Buồn ngủ hoặc mất tập trung │
-└─────────────┴─────────────────────┴──────────────────────┘
+Integration of three metrics (EAR + MAR + Head Pose):
+┌─────────────────┬─────────────────────────┬──────────────────────────┐
+│ Behavior        │ Combined Conditions     │ Detection                │
+├─────────────────┼─────────────────────────┼──────────────────────────┤
+│ Microsleep      │ EAR < 0.2 for ≥1.5s     │ Eyes closed for long     │
+├─────────────────┼─────────────────────────┼──────────────────────────┤
+│ Prolonged yawn  │ MAR > 0.6 for >1.2s     │ Fatigue                  │
+├─────────────────┼─────────────────────────┼──────────────────────────┤
+│ Head nodding    │ |pitch| ≤ 15° for>1.5s  │ Drowsy or lost focus     │
+└─────────────────┴─────────────────────────┴──────────────────────────┘
 
-Nếu 2 trong 3 điều kiện đồng thời xảy ra, hệ thống phát cảnh báo cấp cao (âm thanh / 
-hiển thị / log dữ liệu).
+If 2 out of 3 conditions occur simultaneously, system triggers high alert (sound/display/log).
 """
 
 import time
@@ -32,7 +31,7 @@ from ..detect_rules.head_pose import calculate_head_pose_with_analysis, reset_he
 
 
 class AlertLevel(Enum):
-    """Enum định nghĩa các mức độ cảnh báo."""
+    """Enum defining alert levels."""
     NONE = "NONE"
     LOW = "LOW"
     MEDIUM = "MEDIUM"
@@ -41,7 +40,7 @@ class AlertLevel(Enum):
 
 
 class FatigueState(Enum):
-    """Enum định nghĩa các trạng thái mệt mỏi."""
+    """Enum defining fatigue states."""
     AWAKE = "AWAKE"
     SLIGHTLY_TIRED = "SLIGHTLY_TIRED"
     MODERATELY_TIRED = "MODERATELY_TIRED"
@@ -49,9 +48,36 @@ class FatigueState(Enum):
     DANGEROUSLY_DROWSY = "DANGEROUSLY_DROWSY"
 
 
+class EyeState(Enum):
+    """Enum defining eye states."""
+    OPEN = "OPEN"
+    BLINKING = "BLINKING"
+    CLOSING = "CLOSING"
+    DROWSY = "DROWSY"
+
+
+class MouthState(Enum):
+    """Enum defining mouth states."""
+    CLOSED = "CLOSED"
+    SPEAKING = "SPEAKING"
+    SLIGHTLY_OPEN = "SLIGHTLY_OPEN"
+    WIDE_OPEN = "WIDE_OPEN"
+    YAWNING = "YAWNING"
+
+
+class HeadState(Enum):
+    """Enum defining head pose states."""
+    NORMAL = "NORMAL"
+    SLIGHTLY_TILTED = "SLIGHTLY_TILTED"
+    TILTED = "TILTED"
+    HEAD_DOWN = "HEAD_DOWN"
+    HEAD_DOWN_DROWSY = "HEAD_DOWN_DROWSY"
+
+
 class RuleBasedFatigueDetector:
     """
-    Lớp chính để phát hiện mệt mỏi dựa trên rule-based kết hợp EAR, MAR, Head Pose.
+    Main class for rule-based fatigue detection combining EAR, MAR, Head Pose.
+    This class defines all states and decision logic.
     """
     
     def __init__(self,
@@ -134,102 +160,68 @@ class RuleBasedFatigueDetector:
                         head_pose_result: Optional[Dict],
                         timestamp: float) -> Dict[str, Any]:
         """
-        Kết hợp kết quả từ 3 detector để đưa ra quyết định cuối cùng.
+        Combine results from 3 detectors to make final decision using state definitions.
         """
-        # Khởi tạo kết quả
-        result = {
+        # Analyze individual states using numerical data
+        eye_state = self._analyze_eye_state(ear_result)
+        mouth_state = self._analyze_mouth_state(mar_result)
+        head_state = self._analyze_head_state(head_pose_result)
+        
+        # Determine alert level based on state combination
+        alert_level = self._determine_alert_level(eye_state, mouth_state, head_state)
+        
+        # Handle critical duration escalation
+        if alert_level == AlertLevel.HIGH:
+            if self.high_alert_start_time is None:
+                self.high_alert_start_time = timestamp
+            
+            # Check if should escalate to CRITICAL
+            alert_duration = timestamp - self.high_alert_start_time
+            if alert_duration >= self.critical_duration:
+                alert_level = AlertLevel.CRITICAL
+        else:
+            self.high_alert_start_time = None
+        
+        # Determine fatigue state and recommendation
+        fatigue_state = self._determine_fatigue_state(alert_level)
+        recommendation = self._get_recommendation(alert_level, fatigue_state)
+        
+        # Build alert conditions list
+        alert_conditions = []
+        if eye_state == EyeState.DROWSY:
+            alert_conditions.append("Eyes closed for extended period")
+        if mouth_state == MouthState.YAWNING:
+            alert_conditions.append("Yawning detected")
+        if head_state == HeadState.HEAD_DOWN_DROWSY:
+            alert_conditions.append("Head down for extended period")
+        
+        # Calculate confidence based on severity
+        confidence = self._calculate_confidence(eye_state, mouth_state, head_state, alert_level)
+        
+        # Count total alerts
+        if alert_level in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
+            self.total_alerts += 1
+        
+        # Log if there's an alert
+        if alert_level != AlertLevel.NONE:
+            self.logger.warning(f"Fatigue Alert: {alert_level.value} - {recommendation}")
+        
+        return {
             "timestamp": timestamp,
             "ear": ear_result,
             "mar": mar_result, 
             "head_pose": head_pose_result,
-            "alert_conditions": [],
-            "alert_level": AlertLevel.NONE,
-            "fatigue_state": FatigueState.AWAKE,
-            "confidence": 0.0,
-            "recommendation": "Continue driving safely"
+            "eye_state": eye_state,
+            "mouth_state": mouth_state,
+            "head_state": head_state,
+            "alert_conditions": alert_conditions,
+            "alert_level": alert_level,
+            "fatigue_state": fatigue_state,
+            "confidence": confidence,
+            "recommendation": recommendation
         }
-        
-        # Đếm số điều kiện báo động
-        high_alert_conditions = 0
-        medium_alert_conditions = 0
-        
-        # Kiểm tra EAR
-        if ear_result and ear_result["alert_level"] == "HIGH":
-            high_alert_conditions += 1
-            result["alert_conditions"].append("Eyes closed for extended period")
-        elif ear_result and ear_result["alert_level"] == "MEDIUM":
-            medium_alert_conditions += 1
-        
-        # Kiểm tra MAR  
-        if mar_result and mar_result["alert_level"] == "HIGH":
-            high_alert_conditions += 1
-            result["alert_conditions"].append("Yawning detected")
-        elif mar_result and mar_result["alert_level"] == "MEDIUM":
-            medium_alert_conditions += 1
-        
-        # Kiểm tra Head Pose
-        if head_pose_result and head_pose_result["alert_level"] == "HIGH":
-            high_alert_conditions += 1
-            result["alert_conditions"].append("Head down for extended period")
-        elif head_pose_result and head_pose_result["alert_level"] == "MEDIUM":
-            medium_alert_conditions += 1
-        
-        # Xác định mức độ cảnh báo dựa trên rule-based
-        if high_alert_conditions >= self.combination_threshold:
-            # HIGH alert khi có ít nhất 2/3 điều kiện nghiêm trọng
-            result["alert_level"] = AlertLevel.HIGH
-            result["fatigue_state"] = FatigueState.SEVERELY_TIRED
-            result["confidence"] = min(1.0, high_alert_conditions / 3.0 + 0.3)
-            
-            # Bắt đầu đếm thời gian HIGH alert
-            if self.high_alert_start_time is None:
-                self.high_alert_start_time = timestamp
-                
-            # Kiểm tra có chuyển thành CRITICAL không
-            alert_duration = timestamp - self.high_alert_start_time
-            if alert_duration >= self.critical_duration:
-                result["alert_level"] = AlertLevel.CRITICAL
-                result["fatigue_state"] = FatigueState.DANGEROUSLY_DROWSY
-                result["confidence"] = 1.0
-                result["recommendation"] = "STOP DRIVING IMMEDIATELY - Find safe place to rest"
-            else:
-                result["recommendation"] = "High fatigue detected - Consider taking a break"
-                
-        elif high_alert_conditions >= 1 or medium_alert_conditions >= 2:
-            # MEDIUM alert
-            result["alert_level"] = AlertLevel.MEDIUM
-            result["fatigue_state"] = FatigueState.MODERATELY_TIRED
-            result["confidence"] = min(0.8, (high_alert_conditions + medium_alert_conditions * 0.5) / 3.0 + 0.2)
-            result["recommendation"] = "Moderate fatigue - Take a break soon"
-            self.high_alert_start_time = None
-            
-        elif medium_alert_conditions >= 1:
-            # LOW alert
-            result["alert_level"] = AlertLevel.LOW
-            result["fatigue_state"] = FatigueState.SLIGHTLY_TIRED
-            result["confidence"] = min(0.5, medium_alert_conditions / 3.0 + 0.1)
-            result["recommendation"] = "Slight fatigue detected - Stay alert"
-            self.high_alert_start_time = None
-            
-        else:
-            # NONE alert
-            result["alert_level"] = AlertLevel.NONE
-            result["fatigue_state"] = FatigueState.AWAKE
-            result["confidence"] = 0.0
-            result["recommendation"] = "Continue driving safely"
-            self.high_alert_start_time = None
-        
-        # Cập nhật số lượng cảnh báo
-        if result["alert_level"] in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
-            self.total_alerts += 1
-        
-        # Log nếu có cảnh báo
-        if result["alert_level"] != AlertLevel.NONE:
-            self.logger.warning(f"Fatigue Alert: {result['alert_level'].value} - {result['recommendation']}")
-        
-        return result
     
-    def get_detection_summary(self, time_window: float = 60.0) -> Dict[str, Any]:
+    def _calculate_confidence(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState, alert_level: AlertLevel) -> float:
         """
         Lấy tóm tắt phát hiện trong khoảng thời gian gần đây.
         
@@ -273,8 +265,52 @@ class RuleBasedFatigueDetector:
             "latest_state": recent_detections[-1]["fatigue_state"].value if recent_detections else "UNKNOWN"
         }
     
+    def get_detection_summary(self, time_window: float = 60.0) -> Dict[str, Any]:
+        """
+        Get detection summary for recent time window.
+        
+        Args:
+            time_window: Time window for calculation (seconds)
+            
+        Returns:
+            Dict containing summary information
+        """
+        current_time = time.time()
+        recent_detections = [
+            d for d in self.detection_history 
+            if current_time - d["timestamp"] <= time_window
+        ]
+        
+        if not recent_detections:
+            return {"status": "No recent data"}
+        
+        # Count alerts by level
+        alert_counts = {level.value: 0 for level in AlertLevel}
+        for detection in recent_detections:
+            alert_counts[detection["alert_level"].value] += 1
+        
+        # Calculate average confidence
+        avg_confidence = np.mean([d["confidence"] for d in recent_detections])
+        
+        # Get statistics from sub-detectors
+        ear_stats = get_ear_statistics()
+        mar_stats = get_mar_statistics()
+        head_pose_stats = get_head_pose_statistics()
+        
+        return {
+            "time_window": time_window,
+            "total_detections": len(recent_detections),
+            "alert_distribution": alert_counts,
+            "average_confidence": avg_confidence,
+            "total_alerts_session": self.total_alerts,
+            "ear_statistics": ear_stats,
+            "mar_statistics": mar_stats,
+            "head_pose_statistics": head_pose_stats,
+            "latest_state": recent_detections[-1]["fatigue_state"].value if recent_detections else "UNKNOWN"
+        }
+    
     def reset_session(self):
-        """Reset tất cả dữ liệu session."""
+        """Reset all session data."""
         reset_ear_state()
         reset_mar_state()
         reset_head_pose_state()
@@ -284,15 +320,194 @@ class RuleBasedFatigueDetector:
         self.logger.info("Fatigue detection session reset")
     
     def export_session_data(self) -> Dict[str, Any]:
-        """Export toàn bộ dữ liệu session để phân tích."""
+        """Export all session data for analysis."""
         return {
             "detection_history": self.detection_history,
-            "ear_statistics": self.ear_calculator.get_statistics(),
-            "mar_statistics": self.mar_calculator.get_statistics(),
-            "head_pose_statistics": self.head_pose_estimator.get_statistics(),
+            "ear_statistics": get_ear_statistics(),
+            "mar_statistics": get_mar_statistics(),
+            "head_pose_statistics": get_head_pose_statistics(),
             "total_alerts": self.total_alerts,
             "session_summary": self.get_detection_summary()
         }
+    
+    def _analyze_eye_state(self, ear_data: Optional[Dict]) -> EyeState:
+        """
+        Determine eye state from EAR numerical data.
+        
+        Args:
+            ear_data: Numerical data from EAR calculation
+            
+        Returns:
+            EyeState: Current eye state
+        """
+        if not ear_data:
+            return EyeState.OPEN
+            
+        if ear_data.get("is_drowsy_duration", False):
+            return EyeState.DROWSY
+        elif ear_data.get("is_below_threshold", False):
+            return EyeState.CLOSING
+        elif ear_data.get("consecutive_frames", 0) > 0:
+            return EyeState.BLINKING
+        else:
+            return EyeState.OPEN
+    
+    def _analyze_mouth_state(self, mar_data: Optional[Dict]) -> MouthState:
+        """
+        Determine mouth state from MAR numerical data.
+        
+        Args:
+            mar_data: Numerical data from MAR calculation
+            
+        Returns:
+            MouthState: Current mouth state
+        """
+        if not mar_data:
+            return MouthState.CLOSED
+            
+        if mar_data.get("is_yawn_duration", False):
+            return MouthState.YAWNING
+        elif mar_data.get("is_above_yawn_threshold", False):
+            return MouthState.WIDE_OPEN
+        elif mar_data.get("is_above_speaking_threshold", False):
+            return MouthState.SPEAKING
+        else:
+            return MouthState.CLOSED
+    
+    def _analyze_head_state(self, head_data: Optional[Dict]) -> HeadState:
+        """
+        Determine head state from head pose numerical data.
+        
+        Args:
+            head_data: Numerical data from head pose calculation
+            
+        Returns:
+            HeadState: Current head state
+        """
+        if not head_data:
+            return HeadState.NORMAL
+            
+        if head_data.get("is_drowsy_duration", False):
+            return HeadState.HEAD_DOWN_DROWSY
+        elif head_data.get("is_above_drowsy_threshold", False):
+            return HeadState.TILTED
+        elif head_data.get("is_above_normal_threshold", False):
+            return HeadState.SLIGHTLY_TILTED
+        else:
+            return HeadState.NORMAL
+
+    def _determine_alert_level(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState) -> AlertLevel:
+        """
+        Determine overall alert level based on individual states.
+        
+        Args:
+            eye_state: Current eye state
+            mouth_state: Current mouth state  
+            head_state: Current head state
+            
+        Returns:
+            AlertLevel: Overall alert level
+        """
+        high_risk_conditions = 0
+        medium_risk_conditions = 0
+        
+        # Count high risk conditions
+        if eye_state == EyeState.DROWSY:
+            high_risk_conditions += 1
+        elif eye_state in [EyeState.CLOSING]:
+            medium_risk_conditions += 1
+            
+        if mouth_state == MouthState.YAWNING:
+            high_risk_conditions += 1
+        elif mouth_state == MouthState.WIDE_OPEN:
+            medium_risk_conditions += 1
+            
+        if head_state == HeadState.HEAD_DOWN_DROWSY:
+            high_risk_conditions += 1
+        elif head_state in [HeadState.TILTED, HeadState.HEAD_DOWN]:
+            medium_risk_conditions += 1
+        
+        # Determine alert level based on rule combinations
+        if high_risk_conditions >= self.combination_threshold:
+            return AlertLevel.HIGH
+        elif high_risk_conditions >= 1 or medium_risk_conditions >= 2:
+            return AlertLevel.MEDIUM
+        elif medium_risk_conditions >= 1:
+            return AlertLevel.LOW
+        else:
+            return AlertLevel.NONE
+    
+    def _determine_fatigue_state(self, alert_level: AlertLevel) -> FatigueState:
+        """
+        Map alert level to fatigue state.
+        
+        Args:
+            alert_level: Current alert level
+            
+        Returns:
+            FatigueState: Corresponding fatigue state
+        """
+        mapping = {
+            AlertLevel.NONE: FatigueState.AWAKE,
+            AlertLevel.LOW: FatigueState.SLIGHTLY_TIRED,
+            AlertLevel.MEDIUM: FatigueState.MODERATELY_TIRED,
+            AlertLevel.HIGH: FatigueState.SEVERELY_TIRED,
+            AlertLevel.CRITICAL: FatigueState.DANGEROUSLY_DROWSY
+        }
+        return mapping.get(alert_level, FatigueState.AWAKE)
+    
+    def _get_recommendation(self, alert_level: AlertLevel, fatigue_state: FatigueState) -> str:
+        """
+        Get recommendation based on current state.
+        
+        Args:
+            alert_level: Current alert level
+            fatigue_state: Current fatigue state
+            
+        Returns:
+            str: Recommendation message
+        """
+        recommendations = {
+            AlertLevel.NONE: "Continue driving safely",
+            AlertLevel.LOW: "Slight fatigue detected - Stay alert", 
+            AlertLevel.MEDIUM: "Moderate fatigue - Take a break soon",
+            AlertLevel.HIGH: "High fatigue detected - Consider taking a break",
+            AlertLevel.CRITICAL: "STOP DRIVING IMMEDIATELY - Find safe place to rest"
+        }
+        return recommendations.get(alert_level, "Continue driving safely")
+    
+    def _calculate_confidence(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState, alert_level: AlertLevel) -> float:
+        """
+        Calculate confidence score based on individual states and alert level.
+        
+        Args:
+            eye_state: Current eye state
+            mouth_state: Current mouth state
+            head_state: Current head state
+            alert_level: Overall alert level
+            
+        Returns:
+            float: Confidence score between 0.0 and 1.0
+        """
+        base_confidence = {
+            AlertLevel.NONE: 0.0,
+            AlertLevel.LOW: 0.3,
+            AlertLevel.MEDIUM: 0.6,
+            AlertLevel.HIGH: 0.8,
+            AlertLevel.CRITICAL: 1.0
+        }
+        
+        confidence = base_confidence.get(alert_level, 0.0)
+        
+        # Boost confidence for severe individual states
+        if eye_state == EyeState.DROWSY:
+            confidence += 0.1
+        if mouth_state == MouthState.YAWNING:
+            confidence += 0.1
+        if head_state == HeadState.HEAD_DOWN_DROWSY:
+            confidence += 0.1
+            
+        return min(1.0, confidence)
 
 
 class FatigueDetectionConfig:

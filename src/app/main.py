@@ -128,7 +128,7 @@ class FatigueDetectionPipeline:
                 fatigue_result = self.fatigue_detector.process_frame(features, frame.shape)
                 
                 # Cập nhật thống kê
-                if fatigue_result["alert_level"].value in ["NGUY HIỂM", "NGUY CẤP"]:
+                if fatigue_result["alert_level"].value in ["HIGH", "CRITICAL"]:
                     self.stats["alerts_triggered"] += 1
                     self.stats["last_alert_time"] = time.time()
         
@@ -168,8 +168,8 @@ class FatigueDetectionPipeline:
             # Màu sắc theo mức độ
             color = get_alert_color(alert_level)
             
-            # Trạng thái chính
-            cv2.putText(frame, f"Trang thai: {alert_level}", 
+            # Main status
+            cv2.putText(frame, f"Status: {alert_level}", 
                        (10, y_offset), DISPLAY_CONFIG["font"], 0.7, color, 2)
             y_offset += 30
             
@@ -181,28 +181,28 @@ class FatigueDetectionPipeline:
             # Chi tiết các chỉ số
             if fatigue_result["ear"]:
                 ear_val = fatigue_result["ear"]["ear_value"]
-                ear_state = fatigue_result["ear"]["state"]
+                ear_state = fatigue_result["eye_state"].value  # Sử dụng state mới
                 cv2.putText(frame, f"EAR: {ear_val:.3f} ({ear_state})", 
                            (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
                 y_offset += 20
             
             if fatigue_result["mar"]:
                 mar_val = fatigue_result["mar"]["mar_value"]
-                mar_state = fatigue_result["mar"]["state"]
+                mar_state = fatigue_result["mouth_state"].value  # Sử dụng state mới
                 cv2.putText(frame, f"MAR: {mar_val:.3f} ({mar_state})", 
                            (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
                 y_offset += 20
             
             if fatigue_result["head_pose"]:
                 pitch = fatigue_result["head_pose"]["pitch"]
-                pose_state = fatigue_result["head_pose"]["state"]
+                pose_state = fatigue_result["head_state"].value  # Sử dụng state mới
                 cv2.putText(frame, f"Pitch: {pitch:.1f}° ({pose_state})", 
                            (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
                 y_offset += 20
             
             # Khuyến nghị
             recommendation = get_recommendation(alert_level)
-            if alert_level in ["NGUY HIỂM", "NGUY CẤP"]:
+            if alert_level in ["HIGH", "CRITICAL"]:
                 # Cảnh báo nháy
                 blink = int(time.time() * 3) % 2
                 if blink:
@@ -276,11 +276,11 @@ class FatigueDetectionPipeline:
                     cv2.imwrite(filename, display_frame)
                     self.logger.info(f"📸 Đã lưu ảnh: {filename}")
                 
-                # Log cảnh báo quan trọng
-                if fatigue_result and fatigue_result["alert_level"].value == "NGUY CẤP":
-                    self.logger.warning("🆘 CẢNH BÁO NGUY CẤP: Phát hiện mệt mỏi nghiêm trọng!")
-                elif fatigue_result and fatigue_result["alert_level"].value == "NGUY HIỂM":
-                    self.logger.warning("🚨 CẢNH BÁO: Phát hiện dấu hiệu mệt mỏi!")
+                # Log important alerts
+                if fatigue_result and fatigue_result["alert_level"].value == "CRITICAL":
+                    self.logger.warning("🆘 CRITICAL ALERT: Severe fatigue detected!")
+                elif fatigue_result and fatigue_result["alert_level"].value == "HIGH":
+                    self.logger.warning("🚨 WARNING: Fatigue signs detected!")
         
         except KeyboardInterrupt:
             self.logger.info("⌨️  Dừng bởi người dùng (Ctrl+C)")

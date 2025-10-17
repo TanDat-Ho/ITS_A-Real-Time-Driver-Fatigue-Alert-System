@@ -113,33 +113,21 @@ def analyze_mar_state(mar_value: float,
             _mar_state["yawn_start_time"] = None
             _mar_state["is_yawning"] = False
     
-    # Tính thời gian ngáp hiện tại
+    # Calculate current yawn duration
     current_yawn_duration = 0.0
     if _mar_state["yawn_start_time"] is not None:
         current_yawn_duration = current_time - _mar_state["yawn_start_time"]
-        
-        # Determine state
-        if _mar_state["is_yawning"] and current_yawn_duration >= yawn_duration:
-            state = "YAWNING"
-            alert_level = "DANGER"
-        elif mar_value >= yawn_threshold:
-            state = "MOUTH WIDE OPEN"
-            alert_level = "MEDIUM"
-        elif mar_value >= speaking_threshold:
-            state = "SPEAKING OR SMILING"
-            alert_level = "LOW"
-        else:
-            state = "MOUTH CLOSED"
-            alert_level = "NORMAL"
-            
-        return {
+    
+    # Return only numerical data
+    return {
         "mar_value": mar_value,
-        "state": state,
-        "alert_level": alert_level,
         "is_yawning": _mar_state["is_yawning"],
         "yawn_duration": current_yawn_duration,
         "total_yawns": _mar_state["total_yawns"],
-        "avg_mar": np.mean(_mar_state["mar_history"]) if _mar_state["mar_history"] else 0.0
+        "avg_mar": np.mean(_mar_state["mar_history"]) if _mar_state["mar_history"] else 0.0,
+        "is_above_yawn_threshold": mar_value >= yawn_threshold,
+        "is_above_speaking_threshold": mar_value >= speaking_threshold,
+        "is_yawn_duration": current_yawn_duration >= yawn_duration
     }
 
 

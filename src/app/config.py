@@ -60,16 +60,16 @@ COLORS = {
     "face_outline": (255, 255, 0), # Cyan - Face outline
     
     # Colors by warning level
-    "NORMAL": (0, 255, 0),        # Green
+    "NONE": (0, 255, 0),          # Green
     "LOW": (0, 255, 255),         # Yellow
     "MEDIUM": (0, 165, 255),      # Orange
-    "DANGER": (0, 0, 255),        # Red
+    "HIGH": (0, 0, 255),          # Red
     "CRITICAL": (255, 0, 255),    # Magenta
     
     # Text and UI colors
     "TEXT_NORMAL": (255, 255, 255),   # White
     "TEXT_WARNING": (0, 255, 255),    # Yellow
-    "TEXT_DANGER": (0, 0, 255),       # Red
+    "TEXT_HIGH": (0, 0, 255),         # Red
     "BACKGROUND": (50, 50, 50)        # Dark gray
 }
 
@@ -97,10 +97,10 @@ MESSAGES = {
     "alert_head_down": "💤 WARNING: Prolonged head down!",
     "critical_alert": "🆘 DANGER: Stop vehicle immediately!",
     "recommendations": {
-        "NORMAL": "✅ Continue driving safely",
+        "NONE": "✅ Continue driving safely",
         "LOW": "⚠️ Pay attention",
         "MEDIUM": "🛑 Consider taking a break soon",
-        "DANGER": "🚨 Need to rest immediately",
+        "HIGH": "🚨 Need to rest immediately",
         "CRITICAL": "🆘 STOP VEHICLE NOW - Find safe place to rest"
     }
 }
@@ -136,7 +136,7 @@ def get_fatigue_config():
 
 def get_alert_color(alert_level: str) -> tuple:
     """Get color corresponding to alert level"""
-    return COLORS.get(alert_level, COLORS["NORMAL"])
+    return COLORS.get(alert_level, COLORS["NONE"])
 
 def get_recommendation(alert_level: str) -> str:
     """Get recommendation corresponding to alert level"""

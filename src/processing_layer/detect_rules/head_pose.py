@@ -229,29 +229,18 @@ def analyze_head_pose_state(pose_data: Optional[Dict[str, float]],
     if _head_pose_state["drowsy_start_time"] is not None:
         drowsy_time = current_time - _head_pose_state["drowsy_start_time"]
     
-        # Determine state
-        if drowsy_time >= drowsy_duration:
-            state = "HEAD DOWN DROWSY"
-            alert_level = "DANGER"
-        elif abs_pitch > drowsy_threshold:
-            state = "HEAD TILTED"
-            alert_level = "MEDIUM"
-        elif abs_pitch > normal_threshold:
-            state = "HEAD SLIGHTLY TILTED"
-            alert_level = "LOW"
-        else:
-            state = "HEAD NORMAL"
-            alert_level = "NORMAL"
-            
-        return {
+    # Return only numerical data
+    return {
         "pitch": pitch,
         "yaw": pose_data.get("yaw", 0.0),
         "roll": pose_data.get("roll", 0.0),
-        "state": state,
-        "alert_level": alert_level,
+        "abs_pitch": abs_pitch,
         "drowsy_duration": drowsy_time,
         "avg_pitch": np.mean(_head_pose_state["pitch_history"]) if _head_pose_state["pitch_history"] else 0.0,
-        "pitch_std": np.std(_head_pose_state["pitch_history"]) if len(_head_pose_state["pitch_history"]) > 1 else 0.0
+        "pitch_std": np.std(_head_pose_state["pitch_history"]) if len(_head_pose_state["pitch_history"]) > 1 else 0.0,
+        "is_above_normal_threshold": abs_pitch > normal_threshold,
+        "is_above_drowsy_threshold": abs_pitch > drowsy_threshold,
+        "is_drowsy_duration": drowsy_time >= drowsy_duration
     }
 
 

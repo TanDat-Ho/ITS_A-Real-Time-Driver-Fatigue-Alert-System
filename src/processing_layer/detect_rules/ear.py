@@ -116,48 +116,56 @@ def analyze_ear_state(ear_value: float,
     Returns:
         Dict containing state information
     """
+def analyze_ear_state(ear_value: float, 
+                     blink_threshold: float = 0.2,
+                     blink_frames: int = 3,
+                     drowsy_threshold: float = 0.2,
+                     drowsy_duration: float = 1.5) -> Dict[str, Any]:
+    """
+    Analyze eye state based on EAR value - Returns numerical data only.
+    
+    Args:
+        ear_value: Current EAR value
+        blink_threshold: EAR threshold to detect blink
+        blink_frames: Consecutive frames to confirm blink
+        drowsy_threshold: EAR threshold to detect drowsiness
+        drowsy_duration: Duration (seconds) to confirm drowsiness
+        
+    Returns:
+        Dict containing numerical analysis only (no state labels)
+    """
     current_time = time.time()
     
-    # Check blink
+    # Track blink/closure
     if ear_value < blink_threshold:
         _ear_state["consecutive_frames"] += 1
         
         # Start counting drowsiness time
         if _ear_state["drowsy_start_time"] is None:
             _ear_state["drowsy_start_time"] = current_time
-            
     else:
-        # Mắt mở
+        # Eyes open - count blink if it was a short closure
         if _ear_state["consecutive_frames"] >= blink_frames:
             _ear_state["total_blinks"] += 1
-            
+        
+        # Reset counters
         _ear_state["consecutive_frames"] = 0
         _ear_state["drowsy_start_time"] = None
     
-    # Tính thời gian nhắm mắt
+    # Calculate drowsy duration
     drowsy_time = 0.0
     if _ear_state["drowsy_start_time"] is not None:
         drowsy_time = current_time - _ear_state["drowsy_start_time"]
-        
-        # Determine state
-        if drowsy_time >= drowsy_duration:
-            state = "DROWSY"
-            alert_level = "DANGER"
-        elif ear_value < blink_threshold:
-            state = "BLINKING"
-            alert_level = "LOW"
-        else:
-            state = "ALERT"
-            alert_level = "NORMAL"
-            
-        return {
+    
+    # Return only numerical data
+    return {
         "ear_value": ear_value,
-        "state": state,
-        "alert_level": alert_level,
         "consecutive_frames": _ear_state["consecutive_frames"],
         "drowsy_duration": drowsy_time,
         "total_blinks": _ear_state["total_blinks"],
-        "avg_ear": np.mean(_ear_state["ear_history"]) if _ear_state["ear_history"] else 0.0
+        "avg_ear": np.mean(_ear_state["ear_history"]) if _ear_state["ear_history"] else 0.0,
+        "is_below_threshold": ear_value < drowsy_threshold,
+        "is_drowsy_duration": drowsy_time >= drowsy_duration
     }
 
 
@@ -209,17 +217,15 @@ def calculate_ear(left_eye_landmarks: List[Tuple[int, int, float]],
 
 if __name__ == "__main__":
     # Test với dữ liệu mẫu
-    # left_eye = [(33, 160, 0.0), (160, 158, 0.0), (158, 133, 0.0), (133, 153, 0.0), (153, 144, 0.0), (144, 33, 0.0)]
-    # right_eye = [(362, 385, 0.0), (385, 387, 0.0), (387, 263, 0.0), (263, 373, 0.0), (373, 380, 0.0), (380, 362, 0.0)]
+    left_eye = [(33, 160, 0.0), (160, 158, 0.0), (158, 133, 0.0), (133, 153, 0.0), (153, 144, 0.0), (144, 33, 0.0)]
+    right_eye = [(362, 385, 0.0), (385, 387, 0.0), (387, 263, 0.0), (263, 373, 0.0), (373, 380, 0.0), (380, 362, 0.0)]
     
-    left_eye = [(33, 160), (160, 158), (158, 133), (133, 153), (153, 144), (144, 33)]
-    right_eye = [(362, 385), (385, 387), (387, 263), (263, 373), (373, 380), (380, 362)]
     
     result = calculate_ear(left_eye, right_eye)
-    print(result)
-    # print(f"EAR Value: {result['ear_value']}")
-    # print(f"State: {result['state']}")
-    # print(f"Alert Level: {result['alert_level']}")
+
+    print(f"EAR Value: {result['ear_value']}")
+
+ 
     
-    # stats = get_ear_statistics()
-    # print(f"Statistics: {stats}")
+    stats = get_ear_statistics()
+    print(f"Statistics: {stats}")
