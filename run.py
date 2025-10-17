@@ -1,43 +1,10 @@
-"""
-run.py
------------------
-Main entry point for def print_banner():
-
-
-
-Usage:
-    python run.py                    # Run with default configuration
-    python run.py --config sensitive # Run with sensitive configuration
-    python run.py --help            # Show help
-"""
-
-"""Print startup banner"""
-banner = """
-===============================================================
-                                                               
-   🚗 DRIVER FATIGUE DETECTION SYSTEM                         
-      Real-time Driver Fatigue Detection System               
-                                                               
-   📊 Technology: Computer Vision + Machine Learning          
-   🎯 Features: EAR + MAR + Head Pose Analysis               
-   🔬 Framework: OpenCV + MediaPipe                           
-                                                               
-===============================================================
-    """
-print(banner)
-
-
-
-import os
 import sys
 import argparse
-import logging
 from pathlib import Path
 
 # Thêm project root vào Python path
 PROJECT_ROOT = Path(__file__).parent.absolute()
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import components
 try:
@@ -56,217 +23,98 @@ except ImportError as e:
 
 def setup_directories():
     """Create necessary directories"""
-    directories = [
-        "log",
-        "assets/sounds", 
-        "assets/icon",
-        "output/snapshots"
-    ]
-    
-    for directory in directories:
-        dir_path = PROJECT_ROOT / directory
-        dir_path.mkdir(parents=True, exist_ok=True)
-    
-    print(f"📁 Created necessary directories in: {PROJECT_ROOT}")
+    for subdir in ["log", "assets/sounds", "assets/icon", "output/snapshots"]:
+        (PROJECT_ROOT / subdir).mkdir(parents=True, exist_ok=True)
+    print("✅ Directories verified.")
 
+def show_config(config_type: str):
+    """Display the chosen configuration."""
+    presets = {
+        "default": FatigueDetectionConfig.get_default_config,
+        "sensitive": FatigueDetectionConfig.get_sensitive_config,
+        "conservative": FatigueDetectionConfig.get_conservative_config,
+    }
+    config = presets.get(config_type, get_fatigue_config)()
+    ear, mar, head = config["ear_config"], config["mar_config"], config["head_pose_config"]
 
-def print_banner():
-    """In banner khởi động"""
-    banner = """
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║   🚗 HỆ THỐNG PHÁT HIỆN MỆT MỎI LÁI XE                       ║
-║      Real-time Driver Fatigue Detection System                ║
-║                                                               ║
-║   📊 Công nghệ: Computer Vision + Machine Learning            ║
-║   🎯 Chức năng: EAR + MAR + Head Pose Analysis               ║
-║   🔬 Framework: OpenCV + MediaPipe                           ║
-║                                                               ║
-╚═══════════════════════════════════════════════════════════════╝
-    """
-    print(banner)
-
-
-def print_config_info(config_type: str = "default"):
-    """Print configuration information"""
-    print(f"\n📋 Current configuration: {config_type.upper()}")
-    print("─" * 50)
-    
-    if config_type == "default":
-        config = FatigueDetectionConfig.get_default_config()
-    elif config_type == "sensitive":
-        config = FatigueDetectionConfig.get_sensitive_config()
-    elif config_type == "conservative":
-        config = FatigueDetectionConfig.get_conservative_config()
-    else:
-        config = get_fatigue_config()
-    
-    print(f"👁️  EAR - Drowsy threshold: {config['ear_config']['drowsy_threshold']}")
-    print(f"    Duration: {config['ear_config']['drowsy_duration']}s")
-    
-    print(f"👄 MAR - Yawn threshold: {config['mar_config']['yawn_threshold']}")
-    print(f"    Duration: {config['mar_config']['yawn_duration']}s")
-    
-    print(f"🗣️  HEAD - Tilt threshold: {config['head_pose_config']['drowsy_threshold']}°")
-    print(f"    Duration: {config['head_pose_config']['drowsy_duration']}s")
-    
-    print(f"⚡ Combination threshold: {config['combination_threshold']}/3 conditions")
+    print(f"\n📋 CONFIGURATION: {config_type.upper()}")
+    print(f"👁️ EAR → threshold: {ear['drowsy_threshold']}, duration: {ear['drowsy_duration']}s")
+    print(f"👄 MAR → threshold: {mar['yawn_threshold']}, duration: {mar['yawn_duration']}s")
+    print(f"🗣️ HEAD → threshold: {head['drowsy_threshold']}°, duration: {head['drowsy_duration']}s")
+    print(f"⚡ Combination threshold: {config['combination_threshold']}/3")
     print(f"🚨 Critical duration: {config['critical_duration']}s")
 
-
-def print_instructions():
-    """Print usage instructions"""
-    instructions = """
-🎮 USAGE INSTRUCTIONS:
+def show_instructions():
+    """Quick usage instructions."""
+    print("""
+🎮 USAGE
 ─────────────────────
-⌨️  Keyboard shortcuts:
-   • 'q' or 'Q'    → Exit program
-   • 'r' or 'R'    → Reset session (clear statistics)
-   • 's' or 'S'    → Take screenshot
-   • 'Ctrl+C'      → Force quit
-
-📊 Display information:
-   • Top left: FPS, Frame count, status
-   • Top right: Detection statistics
-   • Bottom: Recommendations and warnings
-
-🎨 Warning colors:
-   • 🟢 GREEN     → Normal (safe)
-   • 🟡 YELLOW    → Low warning
-   • 🟠 ORANGE    → Medium warning
-   • 🔴 RED       → Danger (need rest)
-   • 🟣 PURPLE    → Critical (stop immediately)
-
-💡 NOTE: Ensure adequate lighting and camera can see face clearly
-    """
-    print(instructions)
-
-
-def run_system(config_type: str = "default", debug: bool = False):
-    """
-    Run the system with specified configuration
+[q] Quit     [r] Reset stats     [s] Screenshot
+Ctrl+C → Exit forcefully
+""")
     
-    Args:
-        config_type: Configuration type (default/sensitive/conservative)
-        debug: Debug mode
-    """
+def apply_config(config_type: str):
+    """Apply config overrides to global parameters."""
+    if config_type == "default":
+        return
+    configs = {
+        "sensitive": FatigueDetectionConfig.get_sensitive_config,
+        "conservative": FatigueDetectionConfig.get_conservative_config,
+    }
+    config = configs.get(config_type)()
+    EAR_CONFIG.update(config["ear_config"])
+    MAR_CONFIG.update(config["mar_config"])
+    HEAD_POSE_CONFIG.update(config["head_pose_config"])
+
+def run_system(config_type: str):
+    """Run the optimized fatigue detection system."""
     try:
-        # Validate configuration
         validate_config()
-        print("✅ Configuration is valid")
+        apply_config(config_type)
         
-        # Create and run pipeline
-        print("🚀 Starting system...")
-        
-        # Override configuration if needed
-        if config_type != "default":
-            print(f"🔧 Applying configuration: {config_type}")
-            # Update global config
-            global EAR_CONFIG, MAR_CONFIG, HEAD_POSE_CONFIG
-            if config_type == "sensitive":
-                config = FatigueDetectionConfig.get_sensitive_config()
-            elif config_type == "conservative":
-                config = FatigueDetectionConfig.get_conservative_config()
-            
-            EAR_CONFIG.update(config.get("ear_config", {}))
-            MAR_CONFIG.update(config.get("mar_config", {}))
-            HEAD_POSE_CONFIG.update(config.get("head_pose_config", {}))
-        
-        # Create pipeline
+        print("🚀 Starting OPTIMIZED multi-threaded fatigue detection system...")
         pipeline = create_pipeline()
-        
-        # Set debug mode
-        if debug:
-            logging.getLogger().setLevel(logging.DEBUG)
-            print("🔍 Debug mode enabled")
-        
-        # Run
         pipeline.run()
-        
-        print("👋 System stopped. Thank you for using!")
-        
+            
+        print("👋 System stopped. Goodbye!")
     except KeyboardInterrupt:
-        print("\n⌨️  User stopped the program")
+        print("\n🛑 User terminated program.")
     except Exception as e:
-        print(f"❌ Error: {e}")
-        if debug:
-            import traceback
-            traceback.print_exc()
+        print(f"❌ Runtime error: {e}")
         return 1
-    
     return 0
 
-
 def main():
-    """Main function"""
     parser = argparse.ArgumentParser(
         description="🚗 Driver Fatigue Detection System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Usage examples:
-  python run.py                      # Run with default configuration
-  python run.py --config sensitive   # Run with sensitive configuration (early detection)
-  python run.py --config conservative # Run with conservative configuration (fewer alerts)
-  python run.py --debug              # Run with debug mode
-        """
     )
-    
-    parser.add_argument(
-        "--config", "-c",
-        choices=["default", "sensitive", "conservative"],
-        default="default",
-        help="Configuration type to use (default: default)"
-    )
-    
-    parser.add_argument(
-        "--debug", "-d",
-        action="store_true",
-        help="Enable debug mode"
-    )
-    
-    parser.add_argument(
-        "--info", "-i",
-        action="store_true",
-        help="Show configuration information only"
-    )
-    
-    parser.add_argument(
-        "--setup",
-        action="store_true",
-        help="Create necessary directories only"
-    )
-    
+    parser.add_argument("-c", "--config", choices=["default", "sensitive", "conservative"], default="default")
+    parser.add_argument("--info", "-i", action="store_true", help="Show configuration info only")
+    parser.add_argument("--setup", action="store_true", help="Create required directories only")
     args = parser.parse_args()
-    
-    # Setup directories
+
     setup_directories()
-    
+
     if args.setup:
-        print("✅ Successfully created necessary directories")
         return 0
-    
-    # Print banner
-    print_banner()
-    
-    # Print config info
-    print_config_info(args.config)
-    
+
+    show_config(args.config)
+
     if args.info:
-        print_instructions()
+        show_instructions()
         return 0
-    
-    # Print instructions
-    print_instructions()
-    
-    # Wait for user confirmation
+
+    show_instructions()
+
     try:
-        input("\n🎯 Press Enter to start or Ctrl+C to exit...")
+        input("\n🎯 Press Enter to start...")
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        print("\n👋 Exit.")
         return 0
-    
-    # Run system
-    return run_system(args.config, args.debug)
+
+    return run_system(args.config)
+
 
 
 if __name__ == "__main__":

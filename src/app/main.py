@@ -1,45 +1,46 @@
-"""
-main.py
------------------
-Main pipeline for driver fatigue detection system
-
-Functions:
-- Orchestrate entire pipeline from camera → processing → display
-- Integrate landmark detection, rule-based analysis
-- Display real-time results with English UI
-- Logging and data storage
-"""
-
 import cv2
 import time
-import logging
 import threading
+import queue
 from typing import Optional, Dict, Any
+from dataclasses import dataclass
 import numpy as np
 
-# Import internal modules
+# Internal imports
 from .config import (
-    get_fatigue_config, get_alert_color, get_recommendation, get_display_text,
-    CAMERA_CONFIG, MEDIAPIPE_CONFIG, DISPLAY_CONFIG, COLORS, MESSAGES
+    get_fatigue_config, get_alert_color, get_recommendation,
+    CAMERA_CONFIG, MEDIAPIPE_CONFIG, DISPLAY_CONFIG, COLORS
 )
-
-# Import processing layers
 from ..input_layer.camera_handler import CameraHandler
 from ..processing_layer.detect_landmark.landmark import FaceLandmarkDetector
-from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetector, FatigueDetectionConfig
+from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetector
 
 
-class FatigueDetectionPipeline:
+@dataclass
+class PerformanceMetrics:
+    """Performance monitoring data structure"""
+    capture_fps: float = 0.0
+    processing_fps: float = 0.0
+    display_fps: float = 0.0
+    avg_processing_time: float = 0.0
+    dropped_frames: int = 0
+    total_frames: int = 0
+    faces_detected: int = 0
+    alerts_triggered: int = 0
+
+
+class OptimizedFatigueDetectionPipeline:
     """
-    Main pipeline for fatigue detection system
+    Clean, optimized multi-threaded fatigue detection pipeline
+    
+    Architecture:
+    - Capture Thread: Camera input with smart frame dropping
+    - Processing Thread: Face detection + fatigue analysis
+    - Display Thread: UI rendering + user interaction (main thread)
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize pipeline"""
-        self.setup_logging()
-        self.logger = logging.getLogger("FatigueDetectionPipeline")
-        
-        # Load config
+        # Core configuration
         self.config = config or get_fatigue_config()
         
         # Components
@@ -47,303 +48,371 @@ class FatigueDetectionPipeline:
         self.landmark_detector = None
         self.fatigue_detector = None
         
-        # State
+        # Threading control
         self.is_running = False
-        self.frame_count = 0
-        self.start_time = time.time()
+        self.frame_queue = queue.Queue(maxsize=8)
+        self.result_queue = queue.Queue(maxsize=3)
         
-        # Statistics
-        self.stats = {
-            "total_frames": 0,
-            "faces_detected": 0,
-            "alerts_triggered": 0,
-            "last_alert_time": None
-        }
+        # Performance monitoring
+        self.metrics = PerformanceMetrics()
+        self._processing_times = []
         
-        self.logger.info("🎯 Initializing fatigue detection system")
+        # Latest results for display
+        self.latest_frame = None
+        self.latest_result = None
     
-    def setup_logging(self):
-        """Setup logging"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler("log/fatigue_detection.log", encoding='utf-8')
-            ]
-        )
-    
-    def initialize_components(self):
-        """Initialize components"""
+    def initialize(self) -> bool:
+        """Initialize all components"""
         try:
-            # Camera
-            self.logger.info("📹 Initializing camera...")
             self.camera = CameraHandler(**CAMERA_CONFIG)
-            
-            # Landmark detector
-            self.logger.info("🎭 Initializing landmark detector...")
             self.landmark_detector = FaceLandmarkDetector(**MEDIAPIPE_CONFIG)
-            
-            # Fatigue detector
-            self.logger.info("🧠 Initializing fatigue detector...")
-            config = get_fatigue_config()
-            self.fatigue_detector = RuleBasedFatigueDetector(**config)
-            
-            self.logger.info("✅ Successfully initialized all components")
+            self.fatigue_detector = RuleBasedFatigueDetector(**self.config)
+            print("✅ Components initialized successfully")
             return True
-            
         except Exception as e:
-            self.logger.error(f"❌ Initialization error: {e}")
+            print(f"❌ Initialization failed: {e}")
             return False
     
-    def process_frame(self, frame: np.ndarray) -> tuple:
-        """
-        Xử lý một frame
+    def _capture_thread(self):
+        """Dedicated capture thread with performance monitoring"""
+        self.camera.start()
+        time.sleep(1.0)  # Camera stabilization
         
-        Returns:
-            tuple: (annotated_frame, fatigue_result)
-        """
-        if frame is None:
-            return None, None
+        frame_count = 0
+        last_time = time.time()
         
-        self.frame_count += 1
-        self.stats["total_frames"] += 1
-        
-        # 1. Phát hiện landmarks
-        landmarks, annotated = self.landmark_detector.detect(frame, draw=False)
-        
-        # 2. Nếu có khuôn mặt, tiến hành phân tích
-        fatigue_result = None
-        if landmarks:
-            self.stats["faces_detected"] += 1
+        while self.is_running:
+            frame = self.camera.read_frame()
+            if frame is None:
+                continue
             
-            # Trích xuất đặc trưng
-            features = self.landmark_detector.extract_important_points(landmarks)
+            # FPS calculation
+            frame_count += 1
+            current_time = time.time()
+            if current_time - last_time >= 1.0:
+                self.metrics.capture_fps = frame_count / (current_time - last_time)
+                frame_count = 0
+                last_time = current_time
             
-            if features:
-                # Vẽ debug overlay
-                annotated = self.landmark_detector.draw_debug_overlay(annotated, features)
-                
-                # Phân tích mệt mỏi
-                fatigue_result = self.fatigue_detector.process_frame(features, frame.shape)
-                
-                # Cập nhật thống kê
-                if fatigue_result["alert_level"].value in ["HIGH", "CRITICAL"]:
-                    self.stats["alerts_triggered"] += 1
-                    self.stats["last_alert_time"] = time.time()
-        
-        return annotated, fatigue_result
+            # Smart frame dropping - keep queue lean
+            if self.frame_queue.full():
+                try:
+                    self.frame_queue.get_nowait()  # Drop oldest
+                    self.metrics.dropped_frames += 1
+                except queue.Empty:
+                    pass
+            
+            self.frame_queue.put(frame)
+            time.sleep(0.005)  # Max 200 FPS capture rate
     
-    def draw_ui(self, frame: np.ndarray, fatigue_result: Optional[Dict]) -> np.ndarray:
-        """
-        Vẽ giao diện người dùng trên frame
-        """
+    def _processing_thread(self):
+        """Dedicated processing thread with performance tracking"""
+        processing_count = 0
+        last_time = time.time()
+        
+        while self.is_running:
+            try:
+                frame = self.frame_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            
+            # Process frame with timing
+            start_time = time.time()
+            result = self._process_single_frame(frame)
+            process_time = time.time() - start_time
+            
+            # Performance tracking
+            self._processing_times.append(process_time)
+            if len(self._processing_times) > 50:  # Keep last 50 samples
+                self._processing_times.pop(0)
+            
+            self.metrics.avg_processing_time = np.mean(self._processing_times)
+            
+            # FPS calculation
+            processing_count += 1
+            current_time = time.time()
+            if current_time - last_time >= 1.0:
+                self.metrics.processing_fps = processing_count / (current_time - last_time)
+                processing_count = 0
+                last_time = current_time
+            
+            # Store latest result
+            if result:
+                annotated, fatigue_result = result
+                self.latest_frame = annotated
+                self.latest_result = fatigue_result
+                
+                # Add to result queue for display
+                if not self.result_queue.full():
+                    self.result_queue.put(result)
+    
+    def _process_single_frame(self, frame: np.ndarray):
+        """Process a single frame - core detection logic"""
+        if frame is None:
+            return None
+        
+        self.metrics.total_frames += 1
+        
+        # Face landmark detection
+        landmarks, annotated = self.landmark_detector.detect(frame, draw=False)
+        if not landmarks:
+            return annotated, None
+        
+        self.metrics.faces_detected += 1
+        
+        # Extract facial features
+        features = self.landmark_detector.extract_important_points(landmarks)
+        if not features:
+            return annotated, None
+        
+        # Draw debug overlay
+        annotated = self.landmark_detector.draw_debug_overlay(annotated, features)
+        
+        # Fatigue analysis
+        try:
+            fatigue_result = self.fatigue_detector.process_frame(features, frame.shape)
+            
+            # Update alert counter
+            if fatigue_result and fatigue_result["alert_level"].value in ["HIGH", "CRITICAL"]:
+                self.metrics.alerts_triggered += 1
+                self._handle_alert(fatigue_result["alert_level"].value)
+            
+            return annotated, fatigue_result
+            
+        except Exception as e:
+            print(f"⚠️ Processing error: {e}")
+            return annotated, None
+    
+    def _handle_alert(self, alert_level: str):
+        """Handle critical alerts"""
+        if alert_level == "CRITICAL":
+            print("🆘 CRITICAL: Stop vehicle immediately!")
+        elif alert_level == "HIGH":
+            print("🚨 HIGH ALERT: Take a break soon!")
+    
+    def _draw_ui(self, frame: np.ndarray, fatigue_result: Optional[Dict]) -> np.ndarray:
+        """Clean, comprehensive UI with performance overlay"""
         if frame is None:
             return np.zeros((480, 640, 3), dtype=np.uint8)
         
-        # Tính FPS
-        current_time = time.time()
-        fps = self.frame_count / (current_time - self.start_time) if current_time > self.start_time else 0
+        h, w = frame.shape[:2]
         
-        # Background overlay cho thông tin
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (400, 200), COLORS["BACKGROUND"], -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        # === Main Status Area (Top Left) ===
+        y = 25
+        cv2.putText(frame, f"🚀 OPTIMIZED PIPELINE", (10, y), 
+                   DISPLAY_CONFIG["font"], 0.7, (0, 255, 0), 2)
+        y += 30
         
-        y_offset = 30
-        
-        # FPS và frame count
-        cv2.putText(frame, f"FPS: {fps:.1f}", 
-                   (10, y_offset), DISPLAY_CONFIG["font"], 0.6, COLORS["TEXT_NORMAL"], 1)
-        cv2.putText(frame, f"Frame: {self.frame_count}", 
-                   (150, y_offset), DISPLAY_CONFIG["font"], 0.6, COLORS["TEXT_NORMAL"], 1)
-        y_offset += 25
-        
-        # Thông tin phát hiện mệt mỏi
         if fatigue_result:
-            alert_level = fatigue_result["alert_level"].value
-            fatigue_state = fatigue_result["fatigue_state"].value
-            confidence = fatigue_result["confidence"]
+            alert = fatigue_result["alert_level"].value
+            color = get_alert_color(alert)
+            cv2.putText(frame, f"Status: {alert}", (10, y), 
+                       DISPLAY_CONFIG["font"], 0.8, color, 2)
+            y += 25
             
-            # Màu sắc theo mức độ
-            color = get_alert_color(alert_level)
+            conf = fatigue_result["confidence"]
+            cv2.putText(frame, f"Confidence: {conf:.2f}", (10, y), 
+                       DISPLAY_CONFIG["font"], 0.6, color, 1)
+            y += 25
             
-            # Main status
-            cv2.putText(frame, f"Status: {alert_level}", 
-                       (10, y_offset), DISPLAY_CONFIG["font"], 0.7, color, 2)
-            y_offset += 30
-            
-            # Độ tin cậy
-            cv2.putText(frame, f"Do tin cay: {confidence:.2f}", 
-                       (10, y_offset), DISPLAY_CONFIG["font"], 0.6, color, 2)
-            y_offset += 25
-            
-            # Chi tiết các chỉ số
-            if fatigue_result["ear"]:
-                ear_val = fatigue_result["ear"]["ear_value"]
-                ear_state = fatigue_result["eye_state"].value  # Sử dụng state mới
-                cv2.putText(frame, f"EAR: {ear_val:.3f} ({ear_state})", 
-                           (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
-                y_offset += 20
-            
-            if fatigue_result["mar"]:
-                mar_val = fatigue_result["mar"]["mar_value"]
-                mar_state = fatigue_result["mouth_state"].value  # Sử dụng state mới
-                cv2.putText(frame, f"MAR: {mar_val:.3f} ({mar_state})", 
-                           (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
-                y_offset += 20
-            
-            if fatigue_result["head_pose"]:
-                pitch = fatigue_result["head_pose"]["pitch"]
-                pose_state = fatigue_result["head_state"].value  # Sử dụng state mới
-                cv2.putText(frame, f"Pitch: {pitch:.1f}° ({pose_state})", 
-                           (10, y_offset), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
-                y_offset += 20
-            
-            # Khuyến nghị
-            recommendation = get_recommendation(alert_level)
-            if alert_level in ["HIGH", "CRITICAL"]:
-                # Cảnh báo nháy
-                blink = int(time.time() * 3) % 2
-                if blink:
-                    cv2.rectangle(frame, (0, frame.shape[0]-80), (frame.shape[1], frame.shape[0]), color, -1)
-                    cv2.putText(frame, recommendation, 
-                               (10, frame.shape[0]-30), DISPLAY_CONFIG["font"], 0.8, (255, 255, 255), 2)
-            else:
-                cv2.putText(frame, recommendation, 
-                           (10, frame.shape[0]-30), DISPLAY_CONFIG["font"], 0.6, color, 1)
+            # Detection metrics
+            for key, label in [("ear", "EAR"), ("mar", "MAR"), ("head_pose", "Pitch")]:
+                val = fatigue_result.get(key)
+                if val:
+                    state_key = f"{key.split('_')[0]}_state"
+                    state = fatigue_result.get(state_key)
+                    if state:
+                        display_val = val.get(f"{key}_value", val.get("pitch", 0))
+                        cv2.putText(frame, f"{label}: {display_val:.3f} ({state.value})",
+                                   (10, y), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
+                        y += 18
         else:
-            # Không phát hiện khuôn mặt
-            cv2.putText(frame, get_display_text("no_face"), 
-                       (10, y_offset), DISPLAY_CONFIG["font"], 0.7, COLORS["TEXT_WARNING"], 2)
+            cv2.putText(frame, "No face detected", (10, y), 
+                       DISPLAY_CONFIG["font"], 0.7, COLORS["TEXT_WARNING"], 2)
         
-        # Thống kê ở góc phải
-        stats_x = frame.shape[1] - 200
-        cv2.putText(frame, f"Khuon mat: {self.stats['faces_detected']}/{self.stats['total_frames']}", 
+        # === Performance Metrics (Bottom Left) ===
+        self._draw_performance_overlay(frame)
+        
+        # === Statistics (Top Right) ===
+        stats_x = w - 200
+        cv2.putText(frame, f"Faces: {self.metrics.faces_detected}/{self.metrics.total_frames}", 
                    (stats_x, 30), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
-        cv2.putText(frame, f"Canh bao: {self.stats['alerts_triggered']}", 
+        cv2.putText(frame, f"Alerts: {self.metrics.alerts_triggered}", 
                    (stats_x, 50), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
+        
+        # === Recommendations (Bottom Center) ===
+        if fatigue_result:
+            rec = get_recommendation(fatigue_result["alert_level"].value)
+            if fatigue_result["alert_level"].value in ["HIGH", "CRITICAL"]:
+                # Blinking warning
+                if int(time.time() * 3) % 2:
+                    cv2.rectangle(frame, (0, h-70), (w, h), get_alert_color(fatigue_result["alert_level"].value), -1)
+                    cv2.putText(frame, rec, (10, h-25), DISPLAY_CONFIG["font"], 0.8, (255, 255, 255), 2)
+            else:
+                cv2.putText(frame, rec, (10, h-25), DISPLAY_CONFIG["font"], 0.6, 
+                           get_alert_color(fatigue_result["alert_level"].value), 1)
         
         return frame
     
-    def run(self):
-        """Chạy pipeline chính"""
-        if not self.initialize_components():
-            return False
+    def _draw_performance_overlay(self, frame: np.ndarray):
+        """Draw performance metrics overlay"""
+        h = frame.shape[0]
+        y_start = h - 140
         
-        self.logger.info("🚀 Bắt đầu pipeline phát hiện mệt mỏi")
+        # Performance background
+        cv2.rectangle(frame, (5, y_start - 5), (350, h - 75), (0, 0, 0), -1)
+        cv2.rectangle(frame, (5, y_start - 5), (350, h - 75), COLORS["TEXT_NORMAL"], 1)
+        
+        # Metrics with color coding
+        metrics_data = [
+            (f"📹 Capture: {self.metrics.capture_fps:.1f} FPS", self._get_fps_color(self.metrics.capture_fps)),
+            (f"🧠 Process: {self.metrics.processing_fps:.1f} FPS", self._get_fps_color(self.metrics.processing_fps)),
+            (f"⏱️  Avg Time: {self.metrics.avg_processing_time*1000:.1f}ms", self._get_time_color(self.metrics.avg_processing_time)),
+            (f"📦 Dropped: {self.metrics.dropped_frames}", self._get_dropped_color(self.metrics.dropped_frames))
+        ]
+        
+        for i, (text, color) in enumerate(metrics_data):
+            cv2.putText(frame, text, (10, y_start + i * 15), 
+                       DISPLAY_CONFIG["font"], 0.45, color, 1)
+    
+    def _get_fps_color(self, fps):
+        """Color coding for FPS values"""
+        if fps >= 25: return (0, 255, 0)      # Green
+        elif fps >= 15: return (0, 255, 255)  # Yellow  
+        else: return (0, 0, 255)              # Red
+    
+    def _get_time_color(self, time_ms):
+        """Color coding for processing time"""
+        time_ms *= 1000
+        if time_ms <= 30: return (0, 255, 0)      # Green
+        elif time_ms <= 50: return (0, 255, 255)  # Yellow
+        else: return (0, 0, 255)                  # Red
+    
+    def _get_dropped_color(self, dropped):
+        """Color coding for dropped frames"""
+        if dropped == 0: return (0, 255, 0)       # Green
+        elif dropped < 10: return (0, 255, 255)   # Yellow
+        else: return (0, 0, 255)                  # Red
+    
+    def run(self):
+        """Main execution - start all threads and handle display"""
+        if not self.initialize():
+            return
+        
+        print("🚀 Starting Optimized Multi-threaded Pipeline")
+        print("   📹 Capture Thread: Starting...")
+        print("   🧠 Processing Thread: Starting...")
+        print("   🖥️  Display Thread: Main")
+        print("   Controls: 'q'=quit, 'r'=reset, 's'=snapshot, 'p'=stats")
+        
+        self.is_running = True
+        
+        # Start worker threads
+        capture_thread = threading.Thread(target=self._capture_thread, daemon=True)
+        processing_thread = threading.Thread(target=self._processing_thread, daemon=True)
+        
+        capture_thread.start()
+        processing_thread.start()
+        
+        # Main display loop
+        display_count = 0
+        last_display_time = time.time()
         
         try:
-            # Khởi động camera
-            self.camera.start()
-            time.sleep(1.0)  # Chờ camera ổn định
-            
-            self.is_running = True
-            self.start_time = time.time()
-            
-            self.logger.info("✅ Hệ thống đã sẵn sàng - Nhấn 'q' để thoát, 'r' để reset")
-            
             while self.is_running:
-                # Đọc frame
-                frame = self.camera.read_frame()
+                # Get latest processed frame
+                try:
+                    if not self.result_queue.empty():
+                        self.latest_frame, self.latest_result = self.result_queue.get_nowait()
+                except queue.Empty:
+                    pass
                 
-                if frame is None:
-                    time.sleep(0.01)
-                    continue
+                # Always display something
+                if self.latest_frame is not None:
+                    display_frame = self._draw_ui(self.latest_frame, self.latest_result)
+                    cv2.imshow("Optimized Fatigue Detection", display_frame)
+                    display_count += 1
                 
-                # Xử lý frame
-                annotated, fatigue_result = self.process_frame(frame)
+                # Calculate display FPS
+                current_time = time.time()
+                if current_time - last_display_time >= 1.0:
+                    self.metrics.display_fps = display_count / (current_time - last_display_time)
+                    display_count = 0
+                    last_display_time = current_time
                 
-                # Vẽ UI
-                display_frame = self.draw_ui(annotated, fatigue_result)
-                
-                # Hiển thị
-                cv2.imshow(DISPLAY_CONFIG["window_name"], display_frame)
-                
-                # Xử lý input
+                # Handle user input
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
-                    self.logger.info("🛑 Người dùng yêu cầu thoát")
                     break
                 elif key == ord('r'):
-                    self.logger.info("🔄 Reset session")
-                    self.fatigue_detector.reset_session()
-                    self.stats["alerts_triggered"] = 0
+                    self._reset_system()
                 elif key == ord('s'):
-                    # Lưu ảnh
-                    timestamp = int(time.time())
-                    filename = f"snapshot_{timestamp}.jpg"
-                    cv2.imwrite(filename, display_frame)
-                    self.logger.info(f"📸 Đã lưu ảnh: {filename}")
-                
-                # Log important alerts
-                if fatigue_result and fatigue_result["alert_level"].value == "CRITICAL":
-                    self.logger.warning("🆘 CRITICAL ALERT: Severe fatigue detected!")
-                elif fatigue_result and fatigue_result["alert_level"].value == "HIGH":
-                    self.logger.warning("🚨 WARNING: Fatigue signs detected!")
+                    self._save_snapshot()
+                elif key == ord('p'):
+                    self._print_detailed_stats()
         
         except KeyboardInterrupt:
-            self.logger.info("⌨️  Dừng bởi người dùng (Ctrl+C)")
-        except Exception as e:
-            self.logger.error(f"❌ Lỗi trong quá trình chạy: {e}")
-            import traceback
-            traceback.print_exc()
+            print("\n⌨️ Interrupted by user")
         finally:
-            self.cleanup()
+            self._cleanup()
     
-    def cleanup(self):
-        """Dọn dẹp tài nguyên"""
-        self.logger.info("🧹 Đang dọn dẹp tài nguyên...")
-        
+    def _reset_system(self):
+        """Reset all system states"""
+        print("🔄 Resetting system...")
+        if self.fatigue_detector:
+            self.fatigue_detector.reset_session()
+        self.metrics.alerts_triggered = 0
+        self.metrics.dropped_frames = 0
+        self._processing_times.clear()
+    
+    def _save_snapshot(self):
+        """Save current frame"""
+        if self.latest_frame is not None:
+            timestamp = int(time.time())
+            filename = f"fatigue_snapshot_{timestamp}.jpg"
+            cv2.imwrite(filename, self.latest_frame)
+            print(f"📸 Saved: {filename}")
+        else:
+            print("❌ No frame to save")
+    
+    def _print_detailed_stats(self):
+        """Print comprehensive performance statistics"""
+        print("\n" + "="*50)
+        print("📊 DETAILED PERFORMANCE STATISTICS")
+        print("="*50)
+        print(f"📹 Capture FPS:     {self.metrics.capture_fps:.1f}")
+        print(f"🧠 Processing FPS:  {self.metrics.processing_fps:.1f}")
+        print(f"🖥️  Display FPS:     {self.metrics.display_fps:.1f}")
+        print(f"⏱️  Avg Proc Time:   {self.metrics.avg_processing_time*1000:.1f}ms")
+        print(f"📦 Dropped Frames:  {self.metrics.dropped_frames}")
+        print(f"🎯 Total Frames:    {self.metrics.total_frames}")
+        print(f"👤 Faces Detected:  {self.metrics.faces_detected}")
+        print(f"🚨 Alerts Triggered: {self.metrics.alerts_triggered}")
+        if self.metrics.total_frames > 0:
+            detection_rate = (self.metrics.faces_detected / self.metrics.total_frames) * 100
+            print(f"🎯 Detection Rate:  {detection_rate:.1f}%")
+        print("="*50 + "\n")
+    
+    def _cleanup(self):
+        """Clean resource cleanup"""
+        print("🧹 Cleaning up resources...")
         self.is_running = False
         
-        # Dừng camera
         if self.camera:
             self.camera.release()
-        
-        # Dừng landmark detector
         if self.landmark_detector:
             self.landmark_detector.release()
         
-        # Đóng cửa sổ
         cv2.destroyAllWindows()
-        
-        # In thống kê cuối
-        if self.fatigue_detector:
-            summary = self.fatigue_detector.get_detection_summary()
-            self.logger.info(f"📊 Thống kê phiên làm việc:")
-            self.logger.info(f"   - Tổng frame: {self.stats['total_frames']}")
-            self.logger.info(f"   - Phát hiện khuôn mặt: {self.stats['faces_detected']}")
-            self.logger.info(f"   - Cảnh báo: {self.stats['alerts_triggered']}")
-            self.logger.info(f"   - Trạng thái cuối: {summary.get('latest_state', 'UNKNOWN')}")
-        
-        self.logger.info("✅ Dọn dẹp hoàn tất")
-
-    def get_current_stats(self) -> Dict[str, Any]:
-        """Lấy thống kê hiện tại"""
-        return {
-            "uptime": time.time() - self.start_time,
-            "fps": self.frame_count / (time.time() - self.start_time) if time.time() > self.start_time else 0,
-            **self.stats
-        }
+        print("✅ Cleanup complete")
 
 
-def create_pipeline(config: Optional[Dict[str, Any]] = None) -> FatigueDetectionPipeline:
-    """Factory function để tạo pipeline"""
-    return FatigueDetectionPipeline(config)
+def create_pipeline(config: Optional[Dict[str, Any]] = None) -> OptimizedFatigueDetectionPipeline:
+    """Factory function for creating optimized pipeline"""
+    return OptimizedFatigueDetectionPipeline(config)
 
 
 if __name__ == "__main__":
-    # Test pipeline
-    print("🧪 Test chạy pipeline...")
-    pipeline = create_pipeline()
-    try:
-        pipeline.run()
-    except KeyboardInterrupt:
-        print("\n⌨️  Test dừng bởi người dùng")
-    except Exception as e:
-        print(f"❌ Lỗi test: {e}")
-    finally:
-        print("🏁 Test hoàn tất")
+    print("🚀 Starting Clean Optimized Pipeline...")
     pipeline = create_pipeline()
     pipeline.run()

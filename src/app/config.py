@@ -21,8 +21,8 @@ MAR_CONFIG = {
 
 # ===== HEAD POSE CONFIGURATION =====
 HEAD_POSE_CONFIG = {
-    "normal_threshold": 10.0,     # Normal pitch angle (degrees)
-    "drowsy_threshold": 15.0,     # Drowsy pitch angle (degrees)
+    "normal_threshold": 12.0,     # Normal pitch angle (degrees)
+    "drowsy_threshold": 20.0,     # Drowsy pitch angle (degrees)
     "drowsy_duration": 2.0        # Duration to maintain for drowsiness confirmation (seconds)
 }
 

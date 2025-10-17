@@ -221,50 +221,6 @@ class RuleBasedFatigueDetector:
             "recommendation": recommendation
         }
     
-    def _calculate_confidence(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState, alert_level: AlertLevel) -> float:
-        """
-        Lấy tóm tắt phát hiện trong khoảng thời gian gần đây.
-        
-        Args:
-            time_window: Cửa sổ thời gian tính toán (giây)
-            
-        Returns:
-            Dict chứa thông tin tóm tắt
-        """
-        current_time = time.time()
-        recent_detections = [
-            d for d in self.detection_history 
-            if current_time - d["timestamp"] <= time_window
-        ]
-        
-        if not recent_detections:
-            return {"status": "No recent data"}
-        
-        # Thống kê alerts
-        alert_counts = {level.value: 0 for level in AlertLevel}
-        for detection in recent_detections:
-            alert_counts[detection["alert_level"].value] += 1
-        
-        # Tính confidence trung bình
-        avg_confidence = np.mean([d["confidence"] for d in recent_detections])
-        
-        # Lấy thống kê từ các detector con
-        ear_stats = get_ear_statistics()
-        mar_stats = get_mar_statistics()
-        head_pose_stats = get_head_pose_statistics()
-        
-        return {
-            "time_window": time_window,
-            "total_detections": len(recent_detections),
-            "alert_distribution": alert_counts,
-            "average_confidence": avg_confidence,
-            "total_alerts_session": self.total_alerts,
-            "ear_statistics": ear_stats,
-            "mar_statistics": mar_stats,
-            "head_pose_statistics": head_pose_stats,
-            "latest_state": recent_detections[-1]["fatigue_state"].value if recent_detections else "UNKNOWN"
-        }
-    
     def get_detection_summary(self, time_window: float = 60.0) -> Dict[str, Any]:
         """
         Get detection summary for recent time window.
@@ -424,7 +380,7 @@ class RuleBasedFatigueDetector:
             
         if head_state == HeadState.HEAD_DOWN_DROWSY:
             high_risk_conditions += 1
-        elif head_state in [HeadState.TILTED, HeadState.HEAD_DOWN]:
+        elif head_state == HeadState.TILTED:
             medium_risk_conditions += 1
         
         # Determine alert level based on rule combinations
@@ -529,9 +485,9 @@ class FatigueDetectionConfig:
                 "speaking_threshold": 0.4
             },
             "head_pose_config": {
-                "normal_threshold": 10.0,
-                "drowsy_threshold": 15.0,
-                "drowsy_duration": 1.5
+                "normal_threshold": 12.0,
+                "drowsy_threshold": 20.0,
+                "drowsy_duration": 2.0
             },
             "combination_threshold": 2,
             "critical_duration": 3.0
