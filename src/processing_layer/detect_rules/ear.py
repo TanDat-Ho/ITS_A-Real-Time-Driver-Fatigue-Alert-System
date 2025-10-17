@@ -209,14 +209,17 @@ def calculate_ear(left_eye_landmarks: List[Tuple[int, int, float]],
 
 if __name__ == "__main__":
     # Test với dữ liệu mẫu
-    left_eye = [(33, 160, 0.0), (160, 158, 0.0), (158, 133, 0.0), (133, 153, 0.0), (153, 144, 0.0), (144, 33, 0.0)]
-    right_eye = [(362, 385, 0.0), (385, 387, 0.0), (387, 263, 0.0), (263, 373, 0.0), (373, 380, 0.0), (380, 362, 0.0)]
+    # left_eye = [(33, 160, 0.0), (160, 158, 0.0), (158, 133, 0.0), (133, 153, 0.0), (153, 144, 0.0), (144, 33, 0.0)]
+    # right_eye = [(362, 385, 0.0), (385, 387, 0.0), (387, 263, 0.0), (263, 373, 0.0), (373, 380, 0.0), (380, 362, 0.0)]
+    
+    left_eye = [(33, 160), (160, 158), (158, 133), (133, 153), (153, 144), (144, 33)]
+    right_eye = [(362, 385), (385, 387), (387, 263), (263, 373), (373, 380), (380, 362)]
     
     result = calculate_ear(left_eye, right_eye)
+    print(result)
+    # print(f"EAR Value: {result['ear_value']}")
+    # print(f"State: {result['state']}")
+    # print(f"Alert Level: {result['alert_level']}")
     
-    print(f"EAR Value: {result['ear_value']:.3f}")
-    print(f"State: {result['state']}")
-    print(f"Alert Level: {result['alert_level']}")
-    
-    stats = get_ear_statistics()
-    print(f"Statistics: {stats}")
+    # stats = get_ear_statistics()
+    # print(f"Statistics: {stats}")
