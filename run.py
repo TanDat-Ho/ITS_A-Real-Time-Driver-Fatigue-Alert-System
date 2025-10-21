@@ -6,7 +6,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import components
+# Import component
 try:
     from src.app.main import create_pipeline
     from src.app.config import (
