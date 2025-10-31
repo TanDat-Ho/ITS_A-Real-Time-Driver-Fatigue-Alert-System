@@ -16,7 +16,7 @@ import time
 import threading
 import queue
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, Union
 
 # Nếu bạn có app.config, import các tham số mặc định từ đó.
 # from ..app.config import CAMERA_SRC, FRAME_WIDTH, FRAME_HEIGHT, MAX_QUEUE_SIZE, COLOR_FORMAT
@@ -45,7 +45,7 @@ class CameraHandler(threading.Thread):
     """
 
     def __init__(self,
-                 src: Optional[int | str] = 0,
+                 src: Optional[Union[int, str]] = 0,
                  queue_size: int = 8,
                  target_size: Optional[Tuple[int, int]] = (640, 360),
                  color: str = "rgb",
