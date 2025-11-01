@@ -6,7 +6,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import components
+# Import component
 try:
     from src.app.main import create_pipeline
     from src.app.config import (
@@ -25,7 +25,7 @@ def setup_directories():
     """Create necessary directories"""
     for subdir in ["log", "assets/sounds", "assets/icon", "output/snapshots"]:
         (PROJECT_ROOT / subdir).mkdir(parents=True, exist_ok=True)
-    print("✅ Directories verified.")
+    # Directories created silently
 
 def show_config(config_type: str):
     """Display the chosen configuration."""
@@ -69,18 +69,27 @@ def apply_config(config_type: str):
 def run_system(config_type: str):
     """Run the optimized fatigue detection system."""
     try:
+        from src.output_layer.logger import fatigue_logger
+        
         validate_config()
         apply_config(config_type)
         
-        print("🚀 Starting OPTIMIZED multi-threaded fatigue detection system...")
+        # Start session logging
+        fatigue_logger.log_session_start()
+        
+        print("🚀 Starting Driver Fatigue Detection System...")
+        print("📊 Detailed logs saved to: log/fatigue_detection_YYYY-MM-DD.log")
+        print("🎮 Controls: [q] Quit | [r] Reset | [s] Screenshot")
+        
         pipeline = create_pipeline()
         pipeline.run()
-            
-        print("👋 System stopped. Goodbye!")
+        
+        print("\n👋 System stopped. Check log file for details.")
+        
     except KeyboardInterrupt:
-        print("\n🛑 User terminated program.")
+        print("\n🛑 System stopped by user.")
     except Exception as e:
-        print(f"❌ Runtime error: {e}")
+        print(f"❌ Error: {e}")
         return 1
     return 0
 
@@ -92,12 +101,19 @@ def main():
     parser.add_argument("-c", "--config", choices=["default", "sensitive", "conservative"], default="default")
     parser.add_argument("--info", "-i", action="store_true", help="Show configuration info only")
     parser.add_argument("--setup", action="store_true", help="Create required directories only")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Minimal console output (logs to file)")
     args = parser.parse_args()
 
     setup_directories()
 
     if args.setup:
         return 0
+
+    # Adjust verbosity based on quiet flag
+    if args.quiet:
+        import logging
+        logging.getLogger().setLevel(logging.ERROR)
+        print("🤫 Quiet mode: Minimal console output, check log files for details")
 
     show_config(args.config)
 
@@ -107,11 +123,14 @@ def main():
 
     show_instructions()
 
-    try:
-        input("\n🎯 Press Enter to start...")
-    except KeyboardInterrupt:
-        print("\n👋 Exit.")
-        return 0
+    if not args.quiet:
+        try:
+            input("\n🎯 Press Enter to start...")
+        except KeyboardInterrupt:
+            print("\n👋 Exit.")
+            return 0
+    else:
+        print("🚀 Auto-starting in quiet mode...")
 
     return run_system(args.config)
 

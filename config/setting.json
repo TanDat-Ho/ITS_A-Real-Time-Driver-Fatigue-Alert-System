@@ -1,0 +1,19 @@
+{
+  "logging": {
+    "console_level": "WARNING",
+    "file_level": "INFO",
+    "enable_performance_logging": true,
+    "enable_alert_logging": true
+  },
+  "display": {
+    "show_debug_info": true,
+    "show_fps": true,
+    "show_landmarks": true,
+    "minimal_ui": false
+  },
+  "system": {
+    "auto_start": false,
+    "save_screenshots": true,
+    "auto_reset_after_minutes": 30
+  }
+}

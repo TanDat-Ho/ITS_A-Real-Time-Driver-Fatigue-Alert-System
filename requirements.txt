@@ -1,35 +1,30 @@
-Các thư viện cần thiết (làm từng bước)
+# ====================================================================
+# ITS_A - Real-Time Driver Fatigue Alert System
+# Requirements File
+# ====================================================================
+# 
+# Yêu cầu Python: 3.8 - 3.11 (bắt buộc vì Mediapipe)
+# 
+# Cài đặt:
+#   pip install -r requirements.txt
+# 
+# Hoặc cài đặt từng thư viện:
+#   pip install opencv-python mediapipe==0.10.14 numpy imutils
+# ====================================================================
 
-1. Kiểm tra Python version và tạo môi trường ảo .venv
+# Computer Vision - Xử lý ảnh và video
+opencv-python>=4.8.0
 
-    Kiểm tra python --version (nếu không phải version từ 3.8 → 3.11 thì cài đặt lại python vì mediapipe không hỗ trợ các version khác)
-    Cách tải đúng version và tạo môi trường ảo .venv
-        Link tải: 
-            https://www.python.org/downloads/release/python-3118/
-        Chọn:
-            Windows installer (64-bit) (file tên kiểu python-3.11.8-amd64.exe)
-        Trong bước cài đặt, nhớ:
-            ✅ Tick “Add Python 3.11 to PATH”
-        Mở cmd hoặc PowerShell kiểm tra lại:
-            py -3.11 --version
-        Tạo môi trường ảo với python 3.11:
-            py -3.11 -m venv .venv
-            source .venv/Scripts/activate (của git Bash)
-        Nếu thấy dòng lệnh thay đổi thành như vậy "(venv)" thì đã kích hoạt thành công môi trường ảo
-        Nếu muốn tắt môi trường ảo thì gõ lệnh:
-            deactivate
+# Face Detection & Landmarks - Phát hiện khuôn mặt (468 điểm)
+# Lưu ý: Mediapipe chỉ hỗ trợ Python 3.8-3.11
+mediapipe==0.10.14
 
-    Tự động kích hoạt môi trường trong VS Code (Khuyến nghị)
-        Ctrl + Shift + P → chọn "Python: Select Interpreter" → chọn đúng môi trường ảo .venv vừa tạo
+# Numerical Computing - Xử lý ma trận, tính toán vector
+numpy>=1.24.0
 
-2. OpenCV – Xử lý ảnh & video
-    pip install opencv-python
+# Image Processing Utilities - Hỗ trợ xử lý ảnh
+imutils>=0.5.4
 
-3. Mediapipe – Phát hiện khuôn mặt và landmarks (468 điểm)
-    pip install mediapipe==0.10.14
-
-4. NumPy – Xử lý vector, ma trận, khoảng cách Euclid
-    pip install numpy
-
-5. Imutils – Hỗ trợ resize, rotate tiện hơn
-    pip install imutils
+# Optional: Testing (nếu cần chạy tests)
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
