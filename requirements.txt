@@ -33,3 +33,9 @@ Các thư viện cần thiết (làm từng bước)
 
 5. Imutils – Hỗ trợ resize, rotate tiện hơn
     pip install imutils
+
+6. Pygame – Hệ thống âm thanh cảnh báo
+    pip install pygame
+
+7. Pillow – Xử lý ảnh cho GUI
+    pip install Pillow

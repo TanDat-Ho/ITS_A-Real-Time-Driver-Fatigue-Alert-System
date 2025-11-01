@@ -14,6 +14,8 @@ from .config import (
 from ..input_layer.camera_handler import CameraHandler
 from ..processing_layer.detect_landmark.landmark import FaceLandmarkDetector
 from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetector
+from ..output_layer.alert_module import audio_manager, play_fatigue_alert
+from ..output_layer.alert_history import log_alert_to_history, get_alert_stats_for_gui
 
 
 @dataclass
@@ -39,9 +41,10 @@ class OptimizedFatigueDetectionPipeline:
     - Display Thread: UI rendering + user interaction (main thread)
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, gui_mode: bool = False):
         # Core configuration
         self.config = config or get_fatigue_config()
+        self.gui_mode = gui_mode  # Flag to disable OpenCV windows in GUI mode
         
         # Components
         self.camera = None
@@ -66,8 +69,37 @@ class OptimizedFatigueDetectionPipeline:
         try:
             self.camera = CameraHandler(**CAMERA_CONFIG)
             self.landmark_detector = FaceLandmarkDetector(**MEDIAPIPE_CONFIG)
-            self.fatigue_detector = RuleBasedFatigueDetector(**self.config)
-            print("✅ Components initialized successfully")
+            
+            # Handle config properly - create EAR/MAR specific configs
+            if isinstance(self.config, str):
+                # If config is just a string (like "default"), create appropriate dict
+                if self.config == "high":
+                    ear_config = {"blink_threshold": 0.25, "drowsy_threshold": 0.25}
+                    mar_config = {"yawn_threshold": 0.7}
+                elif self.config == "low":
+                    ear_config = {"blink_threshold": 0.2, "drowsy_threshold": 0.2}
+                    mar_config = {"yawn_threshold": 0.8}
+                else:  # default
+                    ear_config = {"blink_threshold": 0.22, "drowsy_threshold": 0.22}
+                    mar_config = {"yawn_threshold": 0.75}
+                self.fatigue_detector = RuleBasedFatigueDetector(ear_config=ear_config, mar_config=mar_config)
+            elif isinstance(self.config, dict):
+                # Extract specific configs from general config
+                ear_config = {
+                    "blink_threshold": self.config.get("ear_threshold", 0.22),
+                    "drowsy_threshold": self.config.get("ear_threshold", 0.22)
+                }
+                mar_config = {
+                    "yawn_threshold": self.config.get("mar_threshold", 0.75)
+                }
+                self.fatigue_detector = RuleBasedFatigueDetector(ear_config=ear_config, mar_config=mar_config)
+            else:
+                # Fallback to default
+                ear_config = {"blink_threshold": 0.22, "drowsy_threshold": 0.22}
+                mar_config = {"yawn_threshold": 0.75}
+                self.fatigue_detector = RuleBasedFatigueDetector(ear_config=ear_config, mar_config=mar_config)
+                
+            # Components initialized silently
             return True
         except Exception as e:
             print(f"❌ Initialization failed: {e}")
@@ -165,8 +197,8 @@ class OptimizedFatigueDetectionPipeline:
         if not features:
             return annotated, None
         
-        # Draw debug overlay
-        annotated = self.landmark_detector.draw_debug_overlay(annotated, features)
+        # Draw debug overlay - DISABLED to show clean video
+        # annotated = self.landmark_detector.draw_debug_overlay(annotated, features)
         
         # Fatigue analysis
         try:
@@ -184,11 +216,35 @@ class OptimizedFatigueDetectionPipeline:
             return annotated, None
     
     def _handle_alert(self, alert_level: str):
-        """Handle critical alerts"""
-        if alert_level == "CRITICAL":
-            print("🆘 CRITICAL: Stop vehicle immediately!")
-        elif alert_level == "HIGH":
-            print("🚨 HIGH ALERT: Take a break soon!")
+        """Handle critical alerts - log to history and play audio"""
+        from ..output_layer.logger import fatigue_logger
+        
+        alert_details = {
+            "level": alert_level,
+            "timestamp": time.time()
+        }
+        
+        # Log to file logger (traditional logging)
+        fatigue_logger.log_alert(alert_level, alert_details)
+        
+        # Log to alert history manager (new system)
+        confidence = getattr(self.latest_result, 'confidence', 0.8) if self.latest_result else 0.8
+        ear_value = getattr(self.latest_result, 'ear', None) if self.latest_result else None
+        mar_value = getattr(self.latest_result, 'mar', None) if self.latest_result else None
+        head_pose = getattr(self.latest_result, 'head_pose_score', None) if self.latest_result else None
+        
+        log_alert_to_history(
+            alert_level=alert_level,
+            confidence=confidence,
+            ear_value=ear_value,
+            mar_value=mar_value,
+            head_pose=head_pose
+        )
+        
+        # Play audio alert
+        play_fatigue_alert(alert_level)
+        
+        # NO MORE TERMINAL PRINTS - GUI handles all display
     
     def _draw_ui(self, frame: np.ndarray, fatigue_result: Optional[Dict]) -> np.ndarray:
         """Clean, comprehensive UI with performance overlay"""
@@ -299,11 +355,10 @@ class OptimizedFatigueDetectionPipeline:
         if not self.initialize():
             return
         
-        print("🚀 Starting Optimized Multi-threaded Pipeline")
-        print("   📹 Capture Thread: Starting...")
-        print("   🧠 Processing Thread: Starting...")
-        print("   🖥️  Display Thread: Main")
-        print("   Controls: 'q'=quit, 'r'=reset, 's'=snapshot, 'p'=stats")
+        # Minimal startup messages
+        print("📹 Camera: Ready")
+        print("🧠 AI Engine: Ready") 
+        print("� Display: Starting...")
         
         self.is_running = True
         
@@ -327,10 +382,13 @@ class OptimizedFatigueDetectionPipeline:
                 except queue.Empty:
                     pass
                 
-                # Always display something
+                # Always display something (but skip OpenCV window in GUI mode)
                 if self.latest_frame is not None:
                     display_frame = self._draw_ui(self.latest_frame, self.latest_result)
-                    cv2.imshow("Optimized Fatigue Detection", display_frame)
+                    
+                    # Only show OpenCV window if not in GUI mode
+                    if not self.gui_mode:
+                        cv2.imshow("Optimized Fatigue Detection", display_frame)
                     display_count += 1
                 
                 # Calculate display FPS
@@ -340,16 +398,20 @@ class OptimizedFatigueDetectionPipeline:
                     display_count = 0
                     last_display_time = current_time
                 
-                # Handle user input
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('r'):
-                    self._reset_system()
-                elif key == ord('s'):
-                    self._save_snapshot()
-                elif key == ord('p'):
-                    self._print_detailed_stats()
+                # Handle user input (skip in GUI mode)
+                if not self.gui_mode:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        break
+                    elif key == ord('r'):
+                        self._reset_system()
+                    elif key == ord('s'):
+                        self._save_snapshot()
+                    elif key == ord('p'):
+                        self._print_detailed_stats()
+                else:
+                    # In GUI mode, just wait a bit to prevent high CPU usage
+                    time.sleep(0.01)
         
         except KeyboardInterrupt:
             print("\n⌨️ Interrupted by user")
@@ -358,12 +420,12 @@ class OptimizedFatigueDetectionPipeline:
     
     def _reset_system(self):
         """Reset all system states"""
-        print("🔄 Resetting system...")
         if self.fatigue_detector:
             self.fatigue_detector.reset_session()
         self.metrics.alerts_triggered = 0
         self.metrics.dropped_frames = 0
         self._processing_times.clear()
+        print("🔄 System reset")
     
     def _save_snapshot(self):
         """Save current frame"""
@@ -393,23 +455,61 @@ class OptimizedFatigueDetectionPipeline:
             print(f"🎯 Detection Rate:  {detection_rate:.1f}%")
         print("="*50 + "\n")
     
+    def stop(self):
+        """Public method to stop the pipeline"""
+        print("⏹️ Stopping pipeline...")
+        self.is_running = False
+        self._cleanup()
+    
     def _cleanup(self):
         """Clean resource cleanup"""
-        print("🧹 Cleaning up resources...")
+        from ..output_layer.logger import fatigue_logger
+        
         self.is_running = False
+        
+        # Log session summary
+        summary = {
+            "total_frames": self.metrics.total_frames,
+            "faces_detected": self.metrics.faces_detected, 
+            "alerts_triggered": self.metrics.alerts_triggered,
+            "avg_fps": f"{self.metrics.processing_fps:.1f}"
+        }
+        fatigue_logger.log_session_end(summary)
         
         if self.camera:
             self.camera.release()
         if self.landmark_detector:
             self.landmark_detector.release()
         
+        # Cleanup audio system
+        audio_manager.cleanup()
+        
         cv2.destroyAllWindows()
-        print("✅ Cleanup complete")
+        print("✅ Session ended - Check log file for details")
+
+    def stop(self):
+        """Stop the pipeline gracefully"""
+        print("⏹️ Stopping pipeline...")
+        self._cleanup()
+        
+    def get_alert_statistics(self) -> Dict[str, Any]:
+        """Get real-time alert statistics for GUI display"""
+        return get_alert_stats_for_gui()
+    
+    def export_alert_history(self, format: str = 'json') -> str:
+        """Export alert history to file"""
+        from ..output_layer.alert_history import alert_history
+        return alert_history.export_session_data(format)
+    
+    def clear_alert_history(self):
+        """Clear current alert history"""
+        from ..output_layer.alert_history import alert_history
+        alert_history.clear_session()
 
 
-def create_pipeline(config: Optional[Dict[str, Any]] = None) -> OptimizedFatigueDetectionPipeline:
+def create_pipeline(config: Optional[Dict[str, Any]] = None, gui_mode: bool = False) -> OptimizedFatigueDetectionPipeline:
     """Factory function for creating optimized pipeline"""
-    return OptimizedFatigueDetectionPipeline(config)
+    return OptimizedFatigueDetectionPipeline(config, gui_mode)
 
 
 if __name__ == "__main__":
