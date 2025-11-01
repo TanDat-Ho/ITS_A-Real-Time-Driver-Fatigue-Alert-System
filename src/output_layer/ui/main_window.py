@@ -8,11 +8,17 @@ import threading
 import cv2
 from PIL import Image, ImageTk
 import numpy as np
+import os
 import time
 from typing import Optional, Dict, Any
 
 from ...app.main import create_pipeline
 from .welcome_screen import AnimatedWelcomeScreen
+
+def silent_print(*args, **kwargs):
+    """Print only if not in GUI mode"""
+    if os.environ.get('GUI_MODE') != '1':
+        print(*args, **kwargs)
 
 # Global root window to prevent multiple Tk instances
 _global_root = None
@@ -232,6 +238,9 @@ class FatigueDetectionGUI:
         # Statistics section
         self._create_statistics_section(control_frame)
         
+        # Alert messages section
+        self._create_alert_messages_section(control_frame)
+        
         # Performance section
         self._create_performance_section(control_frame)
         
@@ -284,6 +293,17 @@ class FatigueDetectionGUI:
                             relief=tk.RAISED,
                             bd=2)
         save_btn.pack(fill=tk.X, pady=(5, 0))
+        
+        # Test alert button (for development)
+        test_alert_btn = tk.Button(btn_frame,
+                                  text="🧪 Test Alert",
+                                  command=self._test_alert_counter,
+                                  bg='#ffc107',
+                                  fg='black',
+                                  font=('Arial', 10),
+                                  relief=tk.RAISED,
+                                  bd=2)
+        test_alert_btn.pack(fill=tk.X, pady=(5, 0))
         
         # Back to welcome button
         back_btn = tk.Button(btn_frame,
@@ -345,6 +365,44 @@ class FatigueDetectionGUI:
             count_label.pack(side=tk.RIGHT)
             
             self.alert_labels[level] = count_label
+    
+    def _create_alert_messages_section(self, parent):
+        """Create alert messages display section"""
+        alert_frame = tk.LabelFrame(parent,
+                                   text="📢 Current Alerts",
+                                   bg='#3a3a3a',
+                                   fg='white',
+                                   font=('Arial', 12, 'bold'),
+                                   relief=tk.GROOVE,
+                                   bd=2)
+        alert_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Alert content with scrollable text
+        alert_content = tk.Frame(alert_frame, bg='#3a3a3a')
+        alert_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Add scrollbar first
+        scrollbar = tk.Scrollbar(alert_content)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Current alert text display
+        self.current_alert_text = tk.Text(alert_content,
+                                         height=4,
+                                         bg='#2c2c2c',
+                                         fg='white',
+                                         font=('Courier', 9),
+                                         wrap=tk.WORD,
+                                         state=tk.DISABLED,
+                                         relief=tk.SUNKEN,
+                                         bd=1,
+                                         yscrollcommand=scrollbar.set)
+        self.current_alert_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Connect scrollbar
+        scrollbar.config(command=self.current_alert_text.yview)
+        
+        # Initialize with welcome message
+        self._update_alert_message("🟢 System ready - No alerts", "info")
             
     def _create_performance_section(self, parent):
         """Create performance monitoring section"""
@@ -420,12 +478,27 @@ class FatigueDetectionGUI:
             return
             
         try:
+            # Ensure we're not in a broken state from previous stop
+            if self.pipeline:
+                self.pipeline = None
+                
             # Reset counters
             self.alert_counts = {level: 0 for level in self.alert_counts}
             self._update_alert_display()
             
-            # Create pipeline with GUI mode enabled
+            # Create fresh pipeline with GUI mode enabled
+            silent_print("🔄 Creating new detection pipeline...")
             self.pipeline = create_pipeline(self.config, gui_mode=True)
+            
+            if not self.pipeline:
+                raise Exception("Failed to create detection pipeline")
+            
+            # Set GUI callback for alert messages
+            self.pipeline.set_gui_callback(self._handle_pipeline_callback)
+            
+            # Show system ready message
+            self._update_alert_message("🚀 Detection system starting up...", "info")
+            
             self.running = True
             
             # Start pipeline thread
@@ -436,25 +509,54 @@ class FatigueDetectionGUI:
             self.update_thread = threading.Thread(target=self._update_display, daemon=True)
             self.update_thread.start()
             
+            # Start alert monitoring thread
+            self.alert_monitor_thread = threading.Thread(target=self._monitor_alert_history, daemon=True)
+            self.alert_monitor_thread.start()
+            
             # Update UI
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
             self.status_label.config(text="RUNNING", fg='#28a745')
             self.video_label.config(text="🔄 Initializing camera...\nPlease wait")
             
-            print("🚀 Detection started successfully")
+            # Show success message after a short delay
+            self.root.after(1000, lambda: self._update_alert_message(
+                "✅ Detection pipeline active - Monitoring for fatigue", "success"))
+            
+            silent_print("🚀 Detection started successfully")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start detection:\n\n{str(e)}")
-            print(f"❌ Start error: {e}")
+            silent_print(f"❌ Start error: {e}")
+            # Reset state on error
+            self.running = False
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+            self.status_label.config(text="ERROR", fg='#dc3545')
             
     def _run_pipeline(self):
         """Run the detection pipeline"""
         try:
-            self.pipeline.run()
+            if self.pipeline:
+                self.pipeline.run()
+            else:
+                print("❌ No pipeline to run")
+                self.running = False
         except Exception as e:
             print(f"❌ Pipeline error: {e}")
             self.running = False
+            # Reset UI state on pipeline error
+            self.root.after(0, self._reset_ui_on_error)
+            
+    def _reset_ui_on_error(self):
+        """Reset UI state when pipeline fails"""
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+        self.status_label.config(text="ERROR", fg='#dc3545')
+        self.video_label.configure(
+            image="",
+            text="❌ PIPELINE ERROR\n\nCheck console for details\nTry restarting detection"
+        )
             
     def _update_display(self):
         """Update display with latest data"""
@@ -517,18 +619,170 @@ class FatigueDetectionGUI:
         for level, count in self.alert_counts.items():
             if level in self.alert_labels:
                 self.alert_labels[level].config(text=str(count))
+    
+    def _update_alert_message(self, message, alert_type="info"):
+        """Update the alert message display
+        Args:
+            message: The alert message to display
+            alert_type: Type of alert (info, warning, critical)
+        """
+        if not hasattr(self, 'current_alert_text'):
+            return
+            
+        # Color coding for different alert types
+        colors = {
+            'info': '#17a2b8',      # Blue
+            'warning': '#ffc107',   # Yellow  
+            'critical': '#dc3545',  # Red
+            'success': '#28a745'    # Green
+        }
+        
+        color = colors.get(alert_type, '#ffffff')
+        
+        # Enable text widget for editing
+        self.current_alert_text.config(state=tk.NORMAL)
+        
+        # Clear and add new message with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        # Keep only last 10 messages to prevent overflow
+        current_content = self.current_alert_text.get("1.0", tk.END)
+        lines = current_content.strip().split('\n')
+        if len(lines) >= 10:
+            # Remove oldest lines
+            lines = lines[-(9):]  # Keep 9 lines + 1 new = 10 total
+            self.current_alert_text.delete("1.0", tk.END)
+            for line in lines:
+                if line.strip():
+                    self.current_alert_text.insert(tk.END, line + '\n')
+        
+        # Add new message
+        self.current_alert_text.insert(tk.END, formatted_message)
+        
+        # Configure color for the new line
+        line_start = f"{int(self.current_alert_text.index(tk.END).split('.')[0]) - 1}.0"
+        line_end = f"{int(self.current_alert_text.index(tk.END).split('.')[0]) - 1}.end"
+        
+        # Create tag for this message type if not exists
+        tag_name = f"alert_{alert_type}"
+        self.current_alert_text.tag_configure(tag_name, foreground=color)
+        self.current_alert_text.tag_add(tag_name, line_start, line_end)
+        
+        # Auto-scroll to bottom
+        self.current_alert_text.see(tk.END)
+        
+        # Disable editing
+        self.current_alert_text.config(state=tk.DISABLED)
+    
+    def _handle_pipeline_callback(self, callback_type, *args):
+        """Handle callbacks from the detection pipeline"""
+        if callback_type == 'alert' and len(args) >= 2:
+            message = args[0]
+            alert_type = args[1]
+            
+            # Update alert message display
+            self._update_alert_message(message, alert_type)
+            
+            # Update alert counter based on alert level in message
+            message_upper = message.upper()
+            
+            if 'CRITICAL' in message_upper:
+                self.alert_counts['CRITICAL'] += 1
+            elif 'HIGH' in message_upper:
+                self.alert_counts['HIGH'] += 1
+            elif 'MEDIUM' in message_upper:
+                self.alert_counts['MEDIUM'] += 1
+            elif 'LOW' in message_upper:
+                self.alert_counts['LOW'] += 1
+                
+            # Update display
+            self._update_alert_display()
+    
+    def _test_alert_counter(self):
+        """Test alert counter functionality"""
+        import random
+        alert_levels = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        level = random.choice(alert_levels)
+        
+        test_message = f"🧪 {level} Test Alert (Conf: 0.{random.randint(70,95)})"
+        alert_type = 'warning' if level in ['LOW', 'MEDIUM'] else 'critical'
+        
+        self._handle_pipeline_callback('alert', test_message, alert_type)
+    
+    def _monitor_alert_history(self):
+        """Monitor alert history to update counters even if GUI callback fails"""
+        from ..alert_history import get_alert_stats_for_gui
+        
+        last_counts = {level: 0 for level in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']}
+        
+        while self.running:
+            try:
+                # Get latest alert statistics
+                stats = get_alert_stats_for_gui()
+                current_counts = {
+                    'LOW': stats.get('low_alerts', 0),
+                    'MEDIUM': stats.get('medium_alerts', 0),
+                    'HIGH': stats.get('high_alerts', 0),
+                    'CRITICAL': stats.get('critical_alerts', 0)
+                }
+                
+                # Check if counts increased
+                for level in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']:
+                    if current_counts[level] > last_counts[level]:
+                        # New alerts detected in history
+                        new_alerts = current_counts[level] - last_counts[level]
+                        
+                        print(f"📈 HISTORY ALERT DETECTED: {level} (+{new_alerts}), Total: {current_counts[level]}")  # Debug
+                        
+                        # Update local counter to match history
+                        self.alert_counts[level] = current_counts[level]
+                        
+                        # Show message for new alerts
+                        if new_alerts > 0:
+                            self._update_alert_message(
+                                f"📊 {level} Alert detected ({new_alerts} new)", 
+                                'warning' if level in ['LOW', 'MEDIUM'] else 'critical'
+                            )
+                
+                # Update display
+                self._update_alert_display()
+                last_counts = current_counts.copy()
+                
+                time.sleep(2)  # Check every 2 seconds
+                
+            except Exception as e:
+                silent_print(f"Alert monitoring error: {e}")
+                time.sleep(5)
                 
     def stop_detection(self):
-        """Stop fatigue detection"""
+        """Stop fatigue detection - only stop pipeline, keep GUI running"""
         if not self.running:
             return
             
-        print("⏹️ Stopping detection...")
+        silent_print("⏹️ Stopping detection...")
+        self._update_alert_message("⏹️ Stopping detection pipeline...", "info")
         self.running = False
         
-        # Stop pipeline
-        if self.pipeline:
-            self.pipeline.stop()
+        # Stop pipeline safely without killing the whole program
+        try:
+            if self.pipeline:
+                # Just set flag to stop, don't call full cleanup
+                self.pipeline.is_running = False
+                
+                # Safe cleanup of components
+                if hasattr(self.pipeline, 'camera') and self.pipeline.camera:
+                    try:
+                        self.pipeline.camera.release()
+                    except Exception as e:
+                        print(f"Warning: Camera cleanup error: {e}")
+                
+                # Don't call pipeline.stop() as it might crash the GUI
+                self.pipeline = None
+                
+        except Exception as e:
+            print(f"Warning: Pipeline stop error: {e}")
             
         # Update UI
         self.start_btn.config(state=tk.NORMAL)
@@ -541,7 +795,10 @@ class FatigueDetectionGUI:
             text="📹 DETECTION STOPPED\n\nPress START to begin again"
         )
         
-        print("✅ Detection stopped successfully")
+        # Show stopped message
+        self._update_alert_message("⏹️ Detection stopped - System ready for restart", "info")
+        
+        silent_print("✅ Detection stopped - GUI remains active")
         
     def save_screenshot(self):
         """Save current frame as screenshot"""
@@ -564,12 +821,17 @@ class FatigueDetectionGUI:
             print(f"❌ Screenshot error: {e}")
             
     def _on_close(self):
-        """Handle window close event"""
+        """Handle window close event - safe cleanup"""
         try:
+            # Stop detection safely (same as stop button)
             if self.running:
                 self.stop_detection()
-            if self.pipeline and hasattr(self.pipeline, 'stop'):
-                self.pipeline.stop()
+                
+            # Don't call pipeline.stop() - just set to None
+            if self.pipeline:
+                self.pipeline = None
+                
+            # Close GUI window
             if self.root:
                 self.root.destroy()
                 self.root = None
@@ -577,16 +839,18 @@ class FatigueDetectionGUI:
             # Reset class variables
             FatigueDetectionGUI._instance = None
             FatigueDetectionGUI._instance_created = False
+            
         except Exception as e:
-            print(f"Error during close: {e}")
-            # Force close anyway
-            if self.root:
-                try:
+            print(f"Warning during close: {e}")
+            # Force close anyway - but don't crash
+            try:
+                if self.root:
                     self.root.quit()
-                except:
-                    pass
-            FatigueDetectionGUI._instance = None
-            FatigueDetectionGUI._instance_created = False
+            except:
+                pass
+            finally:
+                FatigueDetectionGUI._instance = None
+                FatigueDetectionGUI._instance_created = False
 
     def run(self):
         """Start the GUI application"""

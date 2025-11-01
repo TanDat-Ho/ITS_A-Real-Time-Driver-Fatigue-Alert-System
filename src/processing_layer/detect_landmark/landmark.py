@@ -141,7 +141,13 @@ class FaceLandmarkDetector:
     def release(self):
         """Giải phóng tài nguyên Mediapipe."""
         if hasattr(self, 'face_mesh') and self.face_mesh:
-            self.face_mesh.close()
+            try:
+                self.face_mesh.close()
+            except (ValueError, RuntimeError) as e:
+                # MediaPipe already closed or invalid state - ignore
+                pass
+            finally:
+                self.face_mesh = None
 
     def __enter__(self):
         """Context manager entry."""
@@ -157,4 +163,4 @@ class FaceLandmarkDetector:
         try:
             self.release()
         except Exception:
-            pass
+            pass  # Ignore all errors during garbage collection

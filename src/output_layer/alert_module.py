@@ -4,6 +4,8 @@ src/output_layer/alert_module.py
 Audio alert system for fatigue detection
 """
 
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
 import threading
 import os
@@ -37,9 +39,9 @@ class AudioAlertManager:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
             pygame.mixer.set_num_channels(8)  # More channels for multiple sounds
             self.is_initialized = True
-            print("✅ Audio system initialized successfully")
+            pass  # Audio system initialized successfully
         except Exception as e:
-            print(f"❌ Failed to initialize audio: {e}")
+            pass  # Failed to initialize audio
             self.is_initialized = False
             
     def _load_sounds(self):
@@ -57,11 +59,11 @@ class AudioAlertManager:
                 try:
                     self.sounds[alert_type] = pygame.mixer.Sound(sound_path)
                     self.sounds[alert_type].set_volume(1.0)  # Maximum volume
-                    print(f"✅ Loaded sound: {alert_type.value}")
+                    pass  # Loaded sound successfully
                 except Exception as e:
-                    print(f"❌ Failed to load {alert_type.value}: {e}")
+                    pass  # Failed to load sound
             else:
-                print(f"⚠️ Sound file not found: {sound_path}")
+                pass  # Sound file not found
                 
     def _create_default_sounds(self):
         """Create default alert sounds using pygame"""
@@ -83,9 +85,9 @@ class AudioAlertManager:
             if not os.path.exists(sound_path):
                 try:
                     self._generate_alarm_sound(sound_path, freq, duration, cycles, pattern)
-                    print(f"✅ Generated alarm sound: {alert_type.value}")
+                    pass  # Generated alarm sound successfully
                 except Exception as e:
-                    print(f"❌ Failed to generate {alert_type.value}: {e}")
+                    pass  # Failed to generate alarm sound
                     
     def _generate_alarm_sound(self, filepath: str, base_frequency: int, duration: float, cycles: int, pattern: str):
         """Generate powerful alarm sound with different patterns"""
@@ -160,14 +162,16 @@ class AudioAlertManager:
             wav_file.writeframes(audio_data.tobytes())
             
     def play_alert(self, alert_level: str, force: bool = False):
-        """Play alert sound based on level"""
+        """Play alert sound only for HIGH and CRITICAL levels"""
         if not self.is_initialized:
             return
             
+        # Only play audio for HIGH and CRITICAL alerts
+        if alert_level.upper() not in ['HIGH', 'CRITICAL']:
+            return  # Skip audio for LOW and MEDIUM alerts
+            
         # Map alert levels to sound types
         level_map = {
-            "LOW": AlertSound.LOW,
-            "MEDIUM": AlertSound.MEDIUM, 
             "HIGH": AlertSound.HIGH,
             "CRITICAL": AlertSound.CRITICAL
         }
@@ -185,10 +189,19 @@ class AudioAlertManager:
         # Play sound in separate thread to avoid blocking
         def play_sound():
             try:
-                self.sounds[sound_type].play()
+                if alert_level.upper() == 'CRITICAL':
+                    # Play 3 beeps for CRITICAL alert
+                    for i in range(3):
+                        self.sounds[sound_type].play()
+                        if i < 2:  # Don't sleep after last beep
+                            time.sleep(0.3)  # Short pause between beeps
+                else:
+                    # Play 1 beep for HIGH alert
+                    self.sounds[sound_type].play()
+                    
                 self.last_alert_time[sound_type] = current_time
             except Exception as e:
-                print(f"❌ Error playing sound: {e}")
+                pass  # Error playing sound
                 
         threading.Thread(target=play_sound, daemon=True).start()
         

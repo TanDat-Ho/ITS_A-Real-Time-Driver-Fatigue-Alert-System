@@ -23,11 +23,13 @@ from typing import Optional, Tuple, Dict, Union
 
 logger = logging.getLogger("camera_handler")
 logger.setLevel(logging.INFO)
-# Simple handler if logging not configured elsewhere
+# Use file logging only - reduce console spam
 if not logger.handlers:
-    ch = logging.StreamHandler()
-    ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    logger.addHandler(ch)
+    # Only show WARNING+ in console, everything in file
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(console_handler)
 
 
 class CameraHandler(threading.Thread):
@@ -89,24 +91,27 @@ class CameraHandler(threading.Thread):
             backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_ANY, cv2.CAP_MSMF]
             cap = None
             
-            for backend in backends_to_try:
+            backend_names = ["DSHOW", "ANY", "MSMF"]
+            for i, backend in enumerate(backends_to_try):
                 try:
+                    logger.debug(f"CameraHandler: Trying {backend_names[i]} backend...")
                     cap = cv2.VideoCapture(self.src, backend)
                     if cap.isOpened():
                         # Test if we can actually read a frame
                         ret, test_frame = cap.read()
                         if ret and test_frame is not None:
-                            logger.info(f"CameraHandler: Successfully opened source {self.src} with backend {backend}")
+                            logger.debug(f"CameraHandler: ✅ Successfully opened source {self.src} with {backend_names[i]} backend")
                             break
                         else:
-                            logger.warning(f"CameraHandler: Backend {backend} opened but can't read frames")
+                            logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend opened but can't read frames")
                             cap.release()
                             cap = None
                     else:
+                        logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend failed to open")
                         cap.release()
                         cap = None
                 except Exception as e:
-                    logger.warning(f"CameraHandler: Backend {backend} failed: {e}")
+                    logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend failed: {e}")
                     if cap:
                         cap.release()
                         cap = None
