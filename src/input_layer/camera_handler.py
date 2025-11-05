@@ -21,15 +21,38 @@ from typing import Optional, Tuple, Dict, Union
 # Nếu bạn có app.config, import các tham số mặc định từ đó.
 # from ..app.config import CAMERA_SRC, FRAME_WIDTH, FRAME_HEIGHT, MAX_QUEUE_SIZE, COLOR_FORMAT
 
-logger = logging.getLogger("camera_handler")
-logger.setLevel(logging.INFO)
-# Use file logging only - reduce console spam
-if not logger.handlers:
-    # Only show WARNING+ in console, everything in file
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
-    console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    logger.addHandler(console_handler)
+# Setup centralized logging
+logger = logging.getLogger(__name__)
+
+def _setup_module_logger():
+    """Setup module-specific logging if not already configured"""
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.WARNING)
+        console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        logger.addHandler(console_handler)
+        logger.setLevel(logging.INFO)
+
+_setup_module_logger()
+
+# Constants
+class CameraConstants:
+    """Constants for camera handling"""
+    DEFAULT_FRAME_WIDTH = 640
+    DEFAULT_FRAME_HEIGHT = 480
+    DEFAULT_MAX_QUEUE_SIZE = 10
+    DEFAULT_FPS_LIMIT = 30.0
+    
+    # Backend priorities (Windows optimized)
+    BACKEND_PRIORITY = [cv2.CAP_DSHOW, cv2.CAP_ANY, cv2.CAP_MSMF]
+    BACKEND_NAMES = ["DSHOW", "ANY", "MSMF"]
+    
+    # Color format mappings
+    COLOR_FORMATS = {
+        'RGB': cv2.COLOR_BGR2RGB,
+        'BGR': None,  # No conversion needed
+        'GRAY': cv2.COLOR_BGR2GRAY
+    }
 
 
 class CameraHandler(threading.Thread):
@@ -48,11 +71,11 @@ class CameraHandler(threading.Thread):
 
     def __init__(self,
                  src: Optional[Union[int, str]] = 0,
-                 queue_size: int = 8,
-                 target_size: Optional[Tuple[int, int]] = (640, 360),
+                 queue_size: int = CameraConstants.DEFAULT_MAX_QUEUE_SIZE,
+                 target_size: Optional[Tuple[int, int]] = (CameraConstants.DEFAULT_FRAME_WIDTH, CameraConstants.DEFAULT_FRAME_HEIGHT),
                  color: str = "rgb",
                  normalize: bool = False,
-                 fps_limit: Optional[float] = None,
+                 fps_limit: Optional[float] = CameraConstants.DEFAULT_FPS_LIMIT,
                  auto_reconnect: bool = True):
         super().__init__(daemon=True)
         self.src = src
@@ -87,11 +110,9 @@ class CameraHandler(threading.Thread):
         self.stats["open_attempts"] += 1
         try:
             # Try different backends for better Windows compatibility
-            # DSHOW first as it works best on Windows
-            backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_ANY, cv2.CAP_MSMF]
+            backends_to_try = CameraConstants.BACKEND_PRIORITY
+            backend_names = CameraConstants.BACKEND_NAMES
             cap = None
-            
-            backend_names = ["DSHOW", "ANY", "MSMF"]
             for i, backend in enumerate(backends_to_try):
                 try:
                     logger.debug(f"CameraHandler: Trying {backend_names[i]} backend...")

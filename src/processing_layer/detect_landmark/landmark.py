@@ -13,7 +13,29 @@ Kết quả đầu ra được sử dụng bởi rule-based processor để tín
 import cv2
 import mediapipe as mp
 import numpy as np
+import logging
 from typing import Optional, Tuple, List, Dict, Any
+
+# Setup module logger
+logger = logging.getLogger(__name__)
+
+# Constants
+class LandmarkConstants:
+    """Constants for landmark detection"""
+    DEFAULT_FRAME_SIZE = (640, 480, 3)
+    MIN_LANDMARKS_COUNT = 468
+    
+    # MediaPipe Face Mesh landmark indices
+    LEFT_EYE_IDX = [33, 160, 158, 133, 153, 144]
+    RIGHT_EYE_IDX = [362, 385, 387, 263, 373, 380]
+    MOUTH_IDX = [13, 14, 78, 308, 82, 312]
+    NOSE_TIP_IDX = [1]
+    FACE_OUTLINE_IDX = [10, 152, 234, 454]
+    
+    # Colors for debug visualization (BGR format)
+    EYE_COLOR = (0, 255, 0)      # Green for eyes
+    MOUTH_COLOR = (255, 0, 0)    # Blue for mouth  
+    NOSE_COLOR = (0, 0, 255)     # Red for nose
 
 
 class FaceLandmarkDetector:
@@ -45,7 +67,7 @@ class FaceLandmarkDetector:
             tuple: (face_landmarks, annotated_frame)
         """
         if frame is None or frame.size == 0:
-            return [], frame if frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+            return [], frame if frame is not None else np.zeros(LandmarkConstants.DEFAULT_FRAME_SIZE, dtype=np.uint8)
             
         try:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -68,7 +90,7 @@ class FaceLandmarkDetector:
                         )
             return landmarks, frame
         except Exception as e:
-            print(f"MediaPipe detection error: {e}")
+            logger.error(f"MediaPipe detection error: {e}")
             return [], frame
 
     def extract_important_points(self, landmarks: List[Tuple[int, int, float]]) -> Optional[Dict[str, List[Tuple[int, int, float]]]]:
@@ -85,15 +107,15 @@ class FaceLandmarkDetector:
             return None
 
         # Eye landmarks (6 points each for EAR calculation)
-        left_eye_idx = [33, 160, 158, 133, 153, 144]      # Left eye contour
-        right_eye_idx = [362, 385, 387, 263, 373, 380]    # Right eye contour
+        left_eye_idx = LandmarkConstants.LEFT_EYE_IDX      # Left eye contour
+        right_eye_idx = LandmarkConstants.RIGHT_EYE_IDX    # Right eye contour
         
         # Mouth landmarks (6 points for MAR calculation)  
-        mouth_idx = [13, 14, 78, 308, 82, 312]             # Mouth corners + top/bottom
+        mouth_idx = LandmarkConstants.MOUTH_IDX             # Mouth corners + top/bottom
         
         # Head pose landmarks
-        nose_tip_idx = [1]                                 # Nose tip
-        face_outline_idx = [10, 152, 234, 454]             # Face boundary points
+        nose_tip_idx = LandmarkConstants.NOSE_TIP_IDX       # Nose tip
+        face_outline_idx = LandmarkConstants.FACE_OUTLINE_IDX # Face boundary points
 
         def get_points(idxs):
             return [landmarks[i] for i in idxs if i < len(landmarks)]
@@ -119,11 +141,11 @@ class FaceLandmarkDetector:
 
         # Màu sắc cho từng vùng
         COLORS = {
-            "left_eye": (0, 255, 0),     # Xanh lá
-            "right_eye": (0, 255, 255),  # Vàng
-            "mouth": (0, 0, 255),        # Đỏ
-            "nose": (255, 0, 0),         # Xanh dương
-            "face_outline": (255, 255, 0) # Xanh nhạt
+            "left_eye": LandmarkConstants.EYE_COLOR,     # Green for eyes
+            "right_eye": LandmarkConstants.EYE_COLOR,    # Green for eyes  
+            "mouth": LandmarkConstants.MOUTH_COLOR,      # Blue for mouth
+            "nose": LandmarkConstants.NOSE_COLOR,        # Red for nose
+            "face_outline": (255, 255, 0) # Cyan for face outline
         }
 
         for region, pts in features.items():
