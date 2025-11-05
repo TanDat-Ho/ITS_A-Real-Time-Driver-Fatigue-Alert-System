@@ -202,9 +202,11 @@ class RuleBasedFatigueDetector:
         if alert_level in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
             self.total_alerts += 1
         
-        # Log if there's an alert
+        # Log if there's an alert (silent in GUI mode)
         if alert_level != AlertLevel.NONE:
-            self.logger.warning(f"Fatigue Alert: {alert_level.value} - {recommendation}")
+            import os
+            if os.environ.get('GUI_MODE') != '1':
+                self.logger.warning(f"Fatigue Alert: {alert_level.value} - {recommendation}")
         
         return {
             "timestamp": timestamp,

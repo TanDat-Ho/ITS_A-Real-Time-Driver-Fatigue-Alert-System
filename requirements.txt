@@ -33,6 +33,3 @@ Các thư viện cần thiết (làm từng bước)
 
 5. Imutils – Hỗ trợ resize, rotate tiện hơn
     pip install imutils
-
-6. My-internal-lib – Thư viện nội bộ
-    pip install my-internal-lib

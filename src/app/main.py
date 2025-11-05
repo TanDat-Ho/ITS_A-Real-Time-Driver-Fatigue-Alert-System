@@ -14,6 +14,27 @@ from .config import (
 from ..input_layer.camera_handler import CameraHandler
 from ..processing_layer.detect_landmark.landmark import FaceLandmarkDetector
 from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetector
+from ..output_layer.alert_module import audio_manager, play_fatigue_alert
+from ..output_layer.alert_history import log_alert_to_history, get_alert_stats_for_gui
+
+# Constants
+class PipelineConstants:
+    """Constants for pipeline configuration"""
+    MAX_FRAME_QUEUE_SIZE = 8
+    MAX_RESULT_QUEUE_SIZE = 3
+    CAMERA_STABILIZATION_TIME = 1.0
+    MAX_CAPTURE_FPS = 200  # Max 200 FPS capture rate
+    FRAME_DROP_SLEEP = 0.005
+    PROCESSING_TIMEOUT = 0.1
+    GUI_UPDATE_SLEEP = 0.01
+    PERFORMANCE_SAMPLE_SIZE = 50
+    
+    # Performance thresholds
+    GOOD_FPS_THRESHOLD = 25
+    WARNING_FPS_THRESHOLD = 15
+    GOOD_PROCESSING_TIME = 30  # ms
+    WARNING_PROCESSING_TIME = 50  # ms
+    LOW_DROPPED_FRAMES = 10
 
 
 @dataclass
@@ -39,9 +60,10 @@ class OptimizedFatigueDetectionPipeline:
     - Display Thread: UI rendering + user interaction (main thread)
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, gui_mode: bool = False):
         # Core configuration
         self.config = config or get_fatigue_config()
+        self.gui_mode = gui_mode  # Flag to disable OpenCV windows in GUI mode
         
         # Components
         self.camera = None
@@ -50,33 +72,89 @@ class OptimizedFatigueDetectionPipeline:
         
         # Threading control
         self.is_running = False
-        self.frame_queue = queue.Queue(maxsize=8)
-        self.result_queue = queue.Queue(maxsize=3)
+        self.frame_queue = queue.Queue(maxsize=PipelineConstants.MAX_FRAME_QUEUE_SIZE)
+        self.result_queue = queue.Queue(maxsize=PipelineConstants.MAX_RESULT_QUEUE_SIZE)
         
         # Performance monitoring
         self.metrics = PerformanceMetrics()
+        
+        # GUI communication
+        self.gui_callback = None
         self._processing_times = []
         
         # Latest results for display
         self.latest_frame = None
         self.latest_result = None
+        
+        # GUI callback for status updates
+        self.gui_status_callback = None
+        
+        # Cleanup flag to prevent double cleanup
+        self._cleanup_done = False
     
     def initialize(self) -> bool:
         """Initialize all components"""
         try:
             self.camera = CameraHandler(**CAMERA_CONFIG)
             self.landmark_detector = FaceLandmarkDetector(**MEDIAPIPE_CONFIG)
-            self.fatigue_detector = RuleBasedFatigueDetector(**self.config)
-            print("✅ Components initialized successfully")
+            self.fatigue_detector = self._create_fatigue_detector()
             return True
         except Exception as e:
-            print(f"❌ Initialization failed: {e}")
+            from ..output_layer.logger import fatigue_logger
+            fatigue_logger.logger.error(f"Initialization failed: {e}")
+            if not self.gui_mode:
+                print(f"❌ Initialization failed - check log file for details")
             return False
+    
+    def _create_fatigue_detector(self) -> RuleBasedFatigueDetector:
+        """Create fatigue detector with appropriate configuration"""
+        ear_config, mar_config = self._get_detection_configs()
+        return RuleBasedFatigueDetector(ear_config=ear_config, mar_config=mar_config)
+    
+    def _get_detection_configs(self) -> tuple:
+        """Get EAR and MAR configurations based on current config"""
+        if isinstance(self.config, str):
+            return self._get_string_configs()
+        elif isinstance(self.config, dict):
+            return self._get_dict_configs()
+        else:
+            return self._get_default_configs()
+    
+    def _get_string_configs(self) -> tuple:
+        """Get configs for string-based configuration"""
+        config_map = {
+            "high": (
+                {"blink_threshold": 0.25, "drowsy_threshold": 0.25},
+                {"yawn_threshold": 0.7}
+            ),
+            "low": (
+                {"blink_threshold": 0.2, "drowsy_threshold": 0.2},
+                {"yawn_threshold": 0.8}
+            )
+        }
+        return config_map.get(self.config, self._get_default_configs())
+    
+    def _get_dict_configs(self) -> tuple:
+        """Get configs for dict-based configuration"""
+        ear_config = {
+            "blink_threshold": self.config.get("ear_threshold", 0.22),
+            "drowsy_threshold": self.config.get("ear_threshold", 0.22)
+        }
+        mar_config = {
+            "yawn_threshold": self.config.get("mar_threshold", 0.75)
+        }
+        return ear_config, mar_config
+    
+    def _get_default_configs(self) -> tuple:
+        """Get default configurations"""
+        ear_config = {"blink_threshold": 0.22, "drowsy_threshold": 0.22}
+        mar_config = {"yawn_threshold": 0.75}
+        return ear_config, mar_config
     
     def _capture_thread(self):
         """Dedicated capture thread with performance monitoring"""
         self.camera.start()
-        time.sleep(1.0)  # Camera stabilization
+        time.sleep(PipelineConstants.CAMERA_STABILIZATION_TIME)
         
         frame_count = 0
         last_time = time.time()
@@ -103,7 +181,7 @@ class OptimizedFatigueDetectionPipeline:
                     pass
             
             self.frame_queue.put(frame)
-            time.sleep(0.005)  # Max 200 FPS capture rate
+            time.sleep(PipelineConstants.FRAME_DROP_SLEEP)
     
     def _processing_thread(self):
         """Dedicated processing thread with performance tracking"""
@@ -112,7 +190,7 @@ class OptimizedFatigueDetectionPipeline:
         
         while self.is_running:
             try:
-                frame = self.frame_queue.get(timeout=0.1)
+                frame = self.frame_queue.get(timeout=PipelineConstants.PROCESSING_TIMEOUT)
             except queue.Empty:
                 continue
             
@@ -123,7 +201,7 @@ class OptimizedFatigueDetectionPipeline:
             
             # Performance tracking
             self._processing_times.append(process_time)
-            if len(self._processing_times) > 50:  # Keep last 50 samples
+            if len(self._processing_times) > PipelineConstants.PERFORMANCE_SAMPLE_SIZE:
                 self._processing_times.pop(0)
             
             self.metrics.avg_processing_time = np.mean(self._processing_times)
@@ -165,33 +243,103 @@ class OptimizedFatigueDetectionPipeline:
         if not features:
             return annotated, None
         
-        # Draw debug overlay
-        annotated = self.landmark_detector.draw_debug_overlay(annotated, features)
+        # Debug overlay disabled for clean video output
         
         # Fatigue analysis
         try:
             fatigue_result = self.fatigue_detector.process_frame(features, frame.shape)
             
-            # Update alert counter
-            if fatigue_result and fatigue_result["alert_level"].value in ["HIGH", "CRITICAL"]:
+            # Update alert counter for all non-NONE alerts
+            if fatigue_result and fatigue_result["alert_level"].value != "NONE":
+                alert_level = fatigue_result["alert_level"].value
                 self.metrics.alerts_triggered += 1
-                self._handle_alert(fatigue_result["alert_level"].value)
+                self._handle_alert(alert_level)
             
             return annotated, fatigue_result
             
         except Exception as e:
-            print(f"⚠️ Processing error: {e}")
+            from ..output_layer.logger import fatigue_logger
+            fatigue_logger.logger.error(f"Processing error: {e}")
             return annotated, None
     
     def _handle_alert(self, alert_level: str):
-        """Handle critical alerts"""
-        if alert_level == "CRITICAL":
-            print("🆘 CRITICAL: Stop vehicle immediately!")
-        elif alert_level == "HIGH":
-            print("🚨 HIGH ALERT: Take a break soon!")
+        """Handle critical alerts - log to history and play audio"""
+        from ..output_layer.logger import fatigue_logger
+        
+
+        
+        alert_details = {
+            "level": alert_level,
+            "timestamp": time.time()
+        }
+        
+        # Log to file logger (traditional logging)
+        fatigue_logger.log_alert(alert_level, alert_details)
+        
+        # Log to alert history manager (new system)
+        confidence = getattr(self.latest_result, 'confidence', 0.8) if self.latest_result else 0.8
+        ear_value = getattr(self.latest_result, 'ear', None) if self.latest_result else None
+        mar_value = getattr(self.latest_result, 'mar', None) if self.latest_result else None
+        head_pose = getattr(self.latest_result, 'head_pose_score', None) if self.latest_result else None
+        
+        log_alert_to_history(
+            alert_level=alert_level,
+            confidence=confidence,
+            ear_value=ear_value,
+            mar_value=mar_value,
+            head_pose=head_pose
+        )
+        
+        # Play audio alert
+        play_fatigue_alert(alert_level)
+        
+        # Send alert to GUI if in GUI mode
+        if self.gui_mode and hasattr(self, 'gui_callback') and self.gui_callback:
+            alert_message = self._format_alert_message(alert_level, confidence, ear_value, mar_value, head_pose)
+            alert_type = self._get_alert_display_type(alert_level)
+            self.gui_callback('alert', alert_message, alert_type)
+        
+
+    
+    def _format_alert_message(self, alert_level, confidence, ear_value, mar_value, head_pose):
+        """Format alert message for GUI display"""
+        alert_icons = {
+            "NONE": "✅", "LOW": "⚠️", "MEDIUM": "🚨", 
+            "HIGH": "🔴", "CRITICAL": "🆘"
+        }
+        
+        icon = alert_icons.get(alert_level, "⚠️")
+        message = f"{icon} {alert_level} Alert (Conf: {confidence:.2f})"
+        
+        # Add detection details
+        details = []
+        if ear_value is not None:
+            details.append(f"EAR: {ear_value:.3f}")
+        if mar_value is not None:
+            details.append(f"MAR: {mar_value:.3f}")
+        if head_pose is not None:
+            details.append(f"Head: {head_pose:.1f}°")
+            
+        if details:
+            message += f" | {' | '.join(details)}"
+            
+        return message
+    
+    def _get_alert_display_type(self, alert_level):
+        """Get display type for GUI alert color coding"""
+        if alert_level in ["CRITICAL", "HIGH"]:
+            return "critical"
+        elif alert_level in ["MEDIUM", "LOW"]:
+            return "warning"
+        else:
+            return "info"
+    
+    def set_gui_callback(self, callback):
+        """Set callback function to communicate with GUI"""
+        self.gui_callback = callback
     
     def _draw_ui(self, frame: np.ndarray, fatigue_result: Optional[Dict]) -> np.ndarray:
-        """Clean, comprehensive UI with performance overlay"""
+        """Clean, comprehensive UI with performance overlay - works for both CLI and GUI"""
         if frame is None:
             return np.zeros((480, 640, 3), dtype=np.uint8)
         
@@ -199,33 +347,57 @@ class OptimizedFatigueDetectionPipeline:
         
         # === Main Status Area (Top Left) ===
         y = 25
-        cv2.putText(frame, f"🚀 OPTIMIZED PIPELINE", (10, y), 
-                   DISPLAY_CONFIG["font"], 0.7, (0, 255, 0), 2)
-        y += 30
+        status_text = "🎥 LIVE DETECTION" if self.gui_mode else "🚀 OPTIMIZED PIPELINE"
+        cv2.putText(frame, status_text, (10, y), 
+                   DISPLAY_CONFIG["font"], 0.6, (0, 255, 0), 2)
+        y += 25
         
         if fatigue_result:
             alert = fatigue_result["alert_level"].value
             color = get_alert_color(alert)
-            cv2.putText(frame, f"Status: {alert}", (10, y), 
-                       DISPLAY_CONFIG["font"], 0.8, color, 2)
-            y += 25
             
-            conf = fatigue_result["confidence"]
-            cv2.putText(frame, f"Confidence: {conf:.2f}", (10, y), 
-                       DISPLAY_CONFIG["font"], 0.6, color, 1)
-            y += 25
+            # Alert level with emoji
+            alert_icons = {
+                "NONE": "✅", "LOW": "⚠️", "MEDIUM": "🚨", 
+                "HIGH": "🔴", "CRITICAL": "🆘"
+            }
+            alert_text = f"{alert_icons.get(alert, '⚠️')} {alert}"
+            cv2.putText(frame, alert_text, (10, y), 
+                       DISPLAY_CONFIG["font"], 0.7, color, 2)
+            y += 23
             
-            # Detection metrics
-            for key, label in [("ear", "EAR"), ("mar", "MAR"), ("head_pose", "Pitch")]:
-                val = fatigue_result.get(key)
+            # Show confidence only if not NONE
+            if alert != "NONE":
+                conf = fatigue_result["confidence"]
+                cv2.putText(frame, f"Confidence: {conf:.2f}", (10, y), 
+                           DISPLAY_CONFIG["font"], 0.5, color, 1)
+                y += 20
+            
+            # Detection metrics with visual indicators
+            metric_icons = {"ear": "👁️", "mar": "👄", "head_pose": "🗣️"}
+            metric_labels = {"ear": "EAR", "mar": "MAR", "head_pose": "HEAD"}
+            
+            for key, label in [("ear", "EAR"), ("mar", "MAR"), ("head_pose", "HEAD")]:
+                val = fatigue_result.get(key if key != "head_pose" else "head_pose")
                 if val:
                     state_key = f"{key.split('_')[0]}_state"
                     state = fatigue_result.get(state_key)
                     if state:
                         display_val = val.get(f"{key}_value", val.get("pitch", 0))
-                        cv2.putText(frame, f"{label}: {display_val:.3f} ({state.value})",
-                                   (10, y), DISPLAY_CONFIG["font"], 0.5, COLORS["TEXT_NORMAL"], 1)
-                        y += 18
+                        icon = metric_icons.get(key, "📊")
+                        
+                        # Color code by state
+                        state_colors = {
+                            "NORMAL": (0, 255, 0),    # Green
+                            "WARNING": (0, 255, 255), # Yellow  
+                            "DROWSY": (0, 0, 255),    # Red
+                            "YAWNING": (255, 0, 255)  # Magenta
+                        }
+                        metric_color = state_colors.get(state.value, COLORS["TEXT_NORMAL"])
+                        
+                        cv2.putText(frame, f"{icon} {label}: {display_val:.2f}",
+                                   (10, y), DISPLAY_CONFIG["font"], 0.45, metric_color, 1)
+                        y += 16
         else:
             cv2.putText(frame, "No face detected", (10, y), 
                        DISPLAY_CONFIG["font"], 0.7, COLORS["TEXT_WARNING"], 2)
@@ -255,55 +427,88 @@ class OptimizedFatigueDetectionPipeline:
         return frame
     
     def _draw_performance_overlay(self, frame: np.ndarray):
-        """Draw performance metrics overlay"""
-        h = frame.shape[0]
-        y_start = h - 140
+        """Draw performance metrics overlay - simplified for GUI mode"""
+        h, w = frame.shape[:2]
         
-        # Performance background
-        cv2.rectangle(frame, (5, y_start - 5), (350, h - 75), (0, 0, 0), -1)
-        cv2.rectangle(frame, (5, y_start - 5), (350, h - 75), COLORS["TEXT_NORMAL"], 1)
-        
-        # Metrics with color coding
-        metrics_data = [
-            (f"📹 Capture: {self.metrics.capture_fps:.1f} FPS", self._get_fps_color(self.metrics.capture_fps)),
-            (f"🧠 Process: {self.metrics.processing_fps:.1f} FPS", self._get_fps_color(self.metrics.processing_fps)),
-            (f"⏱️  Avg Time: {self.metrics.avg_processing_time*1000:.1f}ms", self._get_time_color(self.metrics.avg_processing_time)),
-            (f"📦 Dropped: {self.metrics.dropped_frames}", self._get_dropped_color(self.metrics.dropped_frames))
-        ]
-        
-        for i, (text, color) in enumerate(metrics_data):
-            cv2.putText(frame, text, (10, y_start + i * 15), 
-                       DISPLAY_CONFIG["font"], 0.45, color, 1)
+        if self.gui_mode:
+            # Compact version for GUI - top right corner
+            y_pos = 25
+            x_pos = w - 150
+            
+            # Just show FPS in compact form
+            fps_text = f"📊 {self.metrics.processing_fps:.1f} FPS"
+            cv2.putText(frame, fps_text, (x_pos, y_pos), 
+                       DISPLAY_CONFIG["font"], 0.5, self._get_fps_color(self.metrics.processing_fps), 1)
+            
+            # Show dropped frames if any
+            if self.metrics.dropped_frames > 0:
+                cv2.putText(frame, f"📦 {self.metrics.dropped_frames} dropped", (x_pos, y_pos + 20), 
+                           DISPLAY_CONFIG["font"], 0.4, (0, 0, 255), 1)
+        else:
+            # Full version for CLI mode
+            y_start = h - 120
+            
+            # Performance background
+            cv2.rectangle(frame, (5, y_start - 5), (320, h - 55), (0, 0, 0), -1)
+            cv2.rectangle(frame, (5, y_start - 5), (320, h - 55), COLORS["TEXT_NORMAL"], 1)
+            
+            # Metrics with color coding
+            metrics_data = [
+                (f"📹 Capture: {self.metrics.capture_fps:.1f} FPS", self._get_fps_color(self.metrics.capture_fps)),
+                (f"🧠 Process: {self.metrics.processing_fps:.1f} FPS", self._get_fps_color(self.metrics.processing_fps)),
+                (f"⏱️  Time: {self.metrics.avg_processing_time*1000:.1f}ms", self._get_time_color(self.metrics.avg_processing_time)),
+                (f"📦 Dropped: {self.metrics.dropped_frames}", self._get_dropped_color(self.metrics.dropped_frames))
+            ]
+            
+            for i, (text, color) in enumerate(metrics_data):
+                cv2.putText(frame, text, (10, y_start + i * 14), 
+                           DISPLAY_CONFIG["font"], 0.4, color, 1)
     
     def _get_fps_color(self, fps):
         """Color coding for FPS values"""
-        if fps >= 25: return (0, 255, 0)      # Green
-        elif fps >= 15: return (0, 255, 255)  # Yellow  
-        else: return (0, 0, 255)              # Red
+        if fps >= PipelineConstants.GOOD_FPS_THRESHOLD: 
+            return (0, 255, 0)      # Green
+        elif fps >= PipelineConstants.WARNING_FPS_THRESHOLD: 
+            return (0, 255, 255)    # Yellow  
+        else: 
+            return (0, 0, 255)      # Red
     
     def _get_time_color(self, time_ms):
         """Color coding for processing time"""
         time_ms *= 1000
-        if time_ms <= 30: return (0, 255, 0)      # Green
-        elif time_ms <= 50: return (0, 255, 255)  # Yellow
-        else: return (0, 0, 255)                  # Red
+        if time_ms <= PipelineConstants.GOOD_PROCESSING_TIME: 
+            return (0, 255, 0)      # Green
+        elif time_ms <= PipelineConstants.WARNING_PROCESSING_TIME: 
+            return (0, 255, 255)    # Yellow
+        else: 
+            return (0, 0, 255)      # Red
     
     def _get_dropped_color(self, dropped):
         """Color coding for dropped frames"""
-        if dropped == 0: return (0, 255, 0)       # Green
-        elif dropped < 10: return (0, 255, 255)   # Yellow
-        else: return (0, 0, 255)                  # Red
+        if dropped == 0: 
+            return (0, 255, 0)       # Green
+        elif dropped < PipelineConstants.LOW_DROPPED_FRAMES: 
+            return (0, 255, 255)     # Yellow
+        else: 
+            return (0, 0, 255)       # Red
     
     def run(self):
         """Main execution - start all threads and handle display"""
         if not self.initialize():
             return
         
-        print("🚀 Starting Optimized Multi-threaded Pipeline")
-        print("   📹 Capture Thread: Starting...")
-        print("   🧠 Processing Thread: Starting...")
-        print("   🖥️  Display Thread: Main")
-        print("   Controls: 'q'=quit, 'r'=reset, 's'=snapshot, 'p'=stats")
+        # Enhanced startup messages with camera status
+        if self.gui_mode:
+            # More detailed messages for GUI callback
+            self._update_gui_status("🔧 Initializing camera...")
+            time.sleep(0.5)  # Allow GUI to update
+            self._update_gui_status("📹 Camera: Ready")
+            self._update_gui_status("🧠 AI Engine: Ready") 
+            self._update_gui_status("🎥 Detection starting...")
+        else:
+            # Minimal console output - details go to log file
+            print("🚀 Starting Detection System...")
+            print("� Logs: log/fatigue_detection_YYYY-MM-DD.log")
         
         self.is_running = True
         
@@ -327,10 +532,28 @@ class OptimizedFatigueDetectionPipeline:
                 except queue.Empty:
                     pass
                 
-                # Always display something
+                # Display handling - always render UI overlay for camera feed
                 if self.latest_frame is not None:
+                    # Always draw UI overlay (needed for both CLI and GUI camera feed)
                     display_frame = self._draw_ui(self.latest_frame, self.latest_result)
-                    cv2.imshow("Optimized Fatigue Detection", display_frame)
+                    
+                    if not self.gui_mode:
+                        # CLI mode: Show OpenCV window
+                        cv2.imshow("Optimized Fatigue Detection", display_frame)
+                    else:
+                        # GUI mode: Update processed frame for GUI display
+                        self.latest_frame = display_frame  # GUI will use this processed frame
+                        
+                        # Update GUI status if callback available
+                        if self.latest_result and hasattr(self, 'gui_status_callback') and self.gui_status_callback:
+                            alert_level = self.latest_result.get('alert_level')
+                            if alert_level and hasattr(alert_level, 'value'):
+                                alert_val = alert_level.value
+                                if alert_val != 'NONE':
+                                    self.gui_status_callback('alert', f"🚨 {alert_val} Alert")
+                                else:
+                                    self.gui_status_callback('status', f"👁️ Monitoring... FPS: {self.metrics.processing_fps:.1f}")
+                    
                     display_count += 1
                 
                 # Calculate display FPS
@@ -340,16 +563,20 @@ class OptimizedFatigueDetectionPipeline:
                     display_count = 0
                     last_display_time = current_time
                 
-                # Handle user input
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('r'):
-                    self._reset_system()
-                elif key == ord('s'):
-                    self._save_snapshot()
-                elif key == ord('p'):
-                    self._print_detailed_stats()
+                # Handle user input (skip in GUI mode)
+                if not self.gui_mode:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        break
+                    elif key == ord('r'):
+                        self._reset_system()
+                    elif key == ord('s'):
+                        self._save_snapshot()
+                    elif key == ord('p'):
+                        self._print_detailed_stats()
+                else:
+                    # In GUI mode, just wait a bit to prevent high CPU usage
+                    time.sleep(PipelineConstants.GUI_UPDATE_SLEEP)
         
         except KeyboardInterrupt:
             print("\n⌨️ Interrupted by user")
@@ -358,12 +585,13 @@ class OptimizedFatigueDetectionPipeline:
     
     def _reset_system(self):
         """Reset all system states"""
-        print("🔄 Resetting system...")
         if self.fatigue_detector:
             self.fatigue_detector.reset_session()
         self.metrics.alerts_triggered = 0
         self.metrics.dropped_frames = 0
         self._processing_times.clear()
+        if not self.gui_mode:
+            print("🔄 System reset")
     
     def _save_snapshot(self):
         """Save current frame"""
@@ -371,9 +599,11 @@ class OptimizedFatigueDetectionPipeline:
             timestamp = int(time.time())
             filename = f"fatigue_snapshot_{timestamp}.jpg"
             cv2.imwrite(filename, self.latest_frame)
-            print(f"📸 Saved: {filename}")
+            if not self.gui_mode:
+                print(f"📸 Saved: {filename}")
         else:
-            print("❌ No frame to save")
+            if not self.gui_mode:
+                print("❌ No frame to save")
     
     def _print_detailed_stats(self):
         """Print comprehensive performance statistics"""
@@ -393,23 +623,102 @@ class OptimizedFatigueDetectionPipeline:
             print(f"🎯 Detection Rate:  {detection_rate:.1f}%")
         print("="*50 + "\n")
     
+    def stop(self):
+        """Public method to stop the pipeline"""
+        if hasattr(self, '_cleanup_done') and self._cleanup_done:
+            return  # Already stopped
+            
+        print("⏹️ Stopping pipeline...")
+        self.is_running = False
+        self._cleanup()
+    
     def _cleanup(self):
         """Clean resource cleanup"""
-        print("🧹 Cleaning up resources...")
-        self.is_running = False
-        
-        if self.camera:
-            self.camera.release()
-        if self.landmark_detector:
-            self.landmark_detector.release()
-        
-        cv2.destroyAllWindows()
-        print("✅ Cleanup complete")
+        if hasattr(self, '_cleanup_done') and self._cleanup_done:
+            return  # Already cleaned up
+            
+        try:
+            from ..output_layer.logger import fatigue_logger
+            
+            self.is_running = False
+            
+            # Log session summary
+            summary = {
+                "total_frames": self.metrics.total_frames,
+                "faces_detected": self.metrics.faces_detected, 
+                "alerts_triggered": self.metrics.alerts_triggered,
+                "avg_fps": f"{self.metrics.processing_fps:.1f}"
+            }
+            fatigue_logger.log_session_end(summary)
+            
+            # Safe cleanup with error handling
+            if self.camera:
+                try:
+                    self.camera.release()
+                except Exception as e:
+                    print(f"Warning: Camera cleanup error: {e}")
+                finally:
+                    self.camera = None
+                    
+            if self.landmark_detector:
+                try:
+                    self.landmark_detector.release()
+                except Exception as e:
+                    print(f"Warning: Landmark detector cleanup error: {e}")
+                finally:
+                    self.landmark_detector = None
+            
+            # Cleanup audio system
+            try:
+                audio_manager.cleanup()
+            except Exception as e:
+                print(f"Warning: Audio cleanup error: {e}")
+            
+            # Close OpenCV windows
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
+                
+                if not self.gui_mode:
+                    print("✅ Session ended - Check log file for details")
+            
+        except Exception as e:
+            print(f"Warning: Cleanup error: {e}")
+        finally:
+            self._cleanup_done = True
 
 
-def create_pipeline(config: Optional[Dict[str, Any]] = None) -> OptimizedFatigueDetectionPipeline:
+    
+    def set_gui_status_callback(self, callback):
+        """Set callback function for GUI status updates"""
+        self.gui_status_callback = callback
+    
+    def _update_gui_status(self, message):
+        """Update GUI status if callback is available"""
+        if hasattr(self, 'gui_status_callback') and self.gui_status_callback:
+            self.gui_status_callback('status', message)
+        else:
+            print(message)
+        
+    def get_alert_statistics(self) -> Dict[str, Any]:
+        """Get real-time alert statistics for GUI display"""
+        return get_alert_stats_for_gui()
+    
+    def export_alert_history(self, format: str = 'json') -> str:
+        """Export alert history to file"""
+        from ..output_layer.alert_history import alert_history
+        return alert_history.export_session_data(format)
+    
+    def clear_alert_history(self):
+        """Clear current alert history"""
+        from ..output_layer.alert_history import alert_history
+        alert_history.clear_session()
+
+
+def create_pipeline(config: Optional[Dict[str, Any]] = None, gui_mode: bool = False) -> OptimizedFatigueDetectionPipeline:
     """Factory function for creating optimized pipeline"""
-    return OptimizedFatigueDetectionPipeline(config)
+    return OptimizedFatigueDetectionPipeline(config, gui_mode)
 
 
 if __name__ == "__main__":

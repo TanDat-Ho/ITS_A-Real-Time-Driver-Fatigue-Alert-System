@@ -16,18 +16,20 @@ import time
 import threading
 import queue
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, Union
 
 # Nếu bạn có app.config, import các tham số mặc định từ đó.
 # from ..app.config import CAMERA_SRC, FRAME_WIDTH, FRAME_HEIGHT, MAX_QUEUE_SIZE, COLOR_FORMAT
 
 logger = logging.getLogger("camera_handler")
 logger.setLevel(logging.INFO)
-# Simple handler if logging not configured elsewhere
+# Use file logging only - reduce console spam
 if not logger.handlers:
-    ch = logging.StreamHandler()
-    ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    logger.addHandler(ch)
+    # Only show WARNING+ in console, everything in file
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(console_handler)
 
 
 class CameraHandler(threading.Thread):
@@ -45,7 +47,7 @@ class CameraHandler(threading.Thread):
     """
 
     def __init__(self,
-                 src: Optional[int | str] = 0,
+                 src: Optional[Union[int, str]] = 0,
                  queue_size: int = 8,
                  target_size: Optional[Tuple[int, int]] = (640, 360),
                  color: str = "rgb",
@@ -84,16 +86,52 @@ class CameraHandler(threading.Thread):
 
         self.stats["open_attempts"] += 1
         try:
-            cap = cv2.VideoCapture(self.src, cv2.CAP_ANY)
+            # Try different backends for better Windows compatibility
+            # DSHOW first as it works best on Windows
+            backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_ANY, cv2.CAP_MSMF]
+            cap = None
+            
+            backend_names = ["DSHOW", "ANY", "MSMF"]
+            for i, backend in enumerate(backends_to_try):
+                try:
+                    logger.debug(f"CameraHandler: Trying {backend_names[i]} backend...")
+                    cap = cv2.VideoCapture(self.src, backend)
+                    if cap.isOpened():
+                        # Test if we can actually read a frame
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None:
+                            logger.debug(f"CameraHandler: ✅ Successfully opened source {self.src} with {backend_names[i]} backend")
+                            break
+                        else:
+                            logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend opened but can't read frames")
+                            cap.release()
+                            cap = None
+                    else:
+                        logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend failed to open")
+                        cap.release()
+                        cap = None
+                except Exception as e:
+                    logger.warning(f"CameraHandler: ❌ {backend_names[i]} backend failed: {e}")
+                    if cap:
+                        cap.release()
+                        cap = None
+                    continue
+            
+            if cap is None or not cap.isOpened():
+                logger.warning(f"CameraHandler: cannot open source {self.src} with any backend")
+                self.stats["last_open_failed"] = True
+                return False
+                
             # Optional: set resolution hints (may be ignored by some cameras)
             if self.target_size:
                 w, h = self.target_size
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(w))
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(h))
-            if not cap.isOpened():
-                logger.warning(f"CameraHandler: cannot open source {self.src}")
-                self.stats["last_open_failed"] = True
-                return False
+                
+            # Set some common properties for better performance
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
+            cap.set(cv2.CAP_PROP_FPS, 30)  # Set desired FPS
+            
             self._cap = cap
             self.stats["last_open_failed"] = False
             logger.info(f"CameraHandler: opened source {self.src}")
@@ -125,7 +163,7 @@ class CameraHandler(threading.Thread):
                 else:
                     break
             ret, frame = self._cap.read()
-            if not ret:
+            if not ret or frame is None:
                 logger.warning("CameraHandler: read failed (no frame). Will retry.")
                 # release and set None to trigger reconnect
                 try:
@@ -133,7 +171,7 @@ class CameraHandler(threading.Thread):
                 except Exception:
                     pass
                 self._cap = None
-                time.sleep(0.2)
+                time.sleep(0.5)  # Wait a bit longer before retry
                 continue
 
             now = time.time()
