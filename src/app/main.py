@@ -5,6 +5,7 @@ import queue
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import numpy as np
+import logging
 
 # Internal imports
 from .config import (
@@ -16,6 +17,13 @@ from ..processing_layer.detect_landmark.landmark import FaceLandmarkDetector
 from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetector
 from ..output_layer.alert_module import audio_manager, play_fatigue_alert
 from ..output_layer.alert_history import log_alert_to_history, get_alert_stats_for_gui
+
+# Enhanced input components
+from ..input_layer.input_validator import IntegratedInputValidator, PerformanceMonitor
+from ..input_layer.optimized_input_config import OptimizedInputConfig
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # Constants
 class PipelineConstants:
@@ -60,10 +68,26 @@ class OptimizedFatigueDetectionPipeline:
     - Display Thread: UI rendering + user interaction (main thread)
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None, gui_mode: bool = False):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, gui_mode: bool = False, enhanced: bool = False, detection_engine: Optional[Any] = None):
         # Core configuration
         self.config = config or get_fatigue_config()
         self.gui_mode = gui_mode  # Flag to disable OpenCV windows in GUI mode
+        self.enhanced = enhanced  # Flag for enhanced input features
+        self.detection_engine = detection_engine  # Optimized detection engine
+        
+        # Enhanced components (only if enhanced mode)
+        self.input_validator = None
+        self.performance_monitor = None
+        self.optimized_config = None
+        
+        if self.enhanced:
+            self.input_validator = IntegratedInputValidator()
+            self.performance_monitor = PerformanceMonitor(window_size=50)
+            self.optimized_config = OptimizedInputConfig.adapt_for_hardware()
+            logger.info("Enhanced input features enabled")
+            
+            if self.detection_engine:
+                logger.info("Using optimized detection engine with adaptive thresholds")
         
         # Components
         self.camera = None
@@ -95,9 +119,32 @@ class OptimizedFatigueDetectionPipeline:
     def initialize(self) -> bool:
         """Initialize all components"""
         try:
-            self.camera = CameraHandler(**CAMERA_CONFIG)
-            self.landmark_detector = FaceLandmarkDetector(**MEDIAPIPE_CONFIG)
+            # Use enhanced config if available
+            if self.enhanced and self.optimized_config:
+                camera_config = self.optimized_config["camera"]
+                mp_config = self.optimized_config["mediapipe"]
+                logger.info(f"Using hardware-adaptive configuration: {camera_config['target_size']} @ {camera_config['fps_limit']}fps")
+            else:
+                camera_config = CAMERA_CONFIG
+                mp_config = MEDIAPIPE_CONFIG
+            
+            self.camera = CameraHandler(**camera_config)
+            self.landmark_detector = FaceLandmarkDetector(**mp_config)
             self.fatigue_detector = self._create_fatigue_detector()
+            
+            # Enhanced validation if enabled
+            if self.enhanced and self.input_validator:
+                # Validate system configuration
+                config_validation = self.input_validator.validate_system_config(
+                    camera_config, mp_config
+                )
+                if not config_validation["overall_valid"]:
+                    logger.warning("Configuration validation warnings detected")
+                    for category, result in config_validation.items():
+                        if isinstance(result, object) and hasattr(result, 'warnings'):
+                            for warning in result.warnings:
+                                logger.warning(f"{category}: {warning}")
+            
             return True
         except Exception as e:
             from ..output_layer.logger import fatigue_logger
@@ -225,16 +272,38 @@ class OptimizedFatigueDetectionPipeline:
                     self.result_queue.put(result)
     
     def _process_single_frame(self, frame: np.ndarray):
-        """Process a single frame - core detection logic"""
+        """Process a single frame - core detection logic with enhanced validation"""
         if frame is None:
             return None
         
         self.metrics.total_frames += 1
         
+        # Enhanced input validation if enabled
+        if self.enhanced and self.input_validator:
+            # Validate frame quality
+            frame_validation = self.input_validator.frame_validator.validate_frame(frame)
+            if not frame_validation.valid:
+                logger.debug(f"Frame quality insufficient: {frame_validation.errors}")
+                return frame, None  # Return original frame instead of None
+                
+            # Add performance metrics
+            if self.performance_monitor:
+                frame_quality = frame_validation.confidence
+                processing_start = time.time()
+        
         # Face landmark detection
-        landmarks, annotated = self.landmark_detector.detect(frame, draw=False)
+        landmarks, annotated, detection_info = self.landmark_detector.detect(frame, draw=False)
         if not landmarks:
             return annotated, None
+        
+        # Enhanced landmark validation if enabled
+        if self.enhanced and self.input_validator:
+            landmark_validation = self.input_validator.landmark_validator.validate_landmarks(
+                landmarks, frame.shape
+            )
+            if not landmark_validation.valid:
+                logger.debug(f"Landmark quality insufficient: {landmark_validation.warnings}")
+                # Still continue processing but log the issue
         
         self.metrics.faces_detected += 1
         
@@ -254,6 +323,12 @@ class OptimizedFatigueDetectionPipeline:
                 alert_level = fatigue_result["alert_level"].value
                 self.metrics.alerts_triggered += 1
                 self._handle_alert(alert_level)
+            
+            # Enhanced performance monitoring
+            if self.enhanced and self.performance_monitor:
+                processing_time = time.time() - processing_start
+                landmark_count = len(landmarks)
+                self.performance_monitor.add_metrics(frame_quality, landmark_count, processing_time)
             
             return annotated, fatigue_result
             
@@ -503,12 +578,22 @@ class OptimizedFatigueDetectionPipeline:
             self._update_gui_status("🔧 Initializing camera...")
             time.sleep(0.5)  # Allow GUI to update
             self._update_gui_status("📹 Camera: Ready")
-            self._update_gui_status("🧠 AI Engine: Ready") 
+            self._update_gui_status("🧠 AI Engine: Ready")
+            if self.enhanced:
+                self._update_gui_status("🚀 Enhanced mode: Active")
             self._update_gui_status("🎥 Detection starting...")
         else:
-            # Minimal console output - details go to log file
-            print("🚀 Starting Detection System...")
-            print("� Logs: log/fatigue_detection_YYYY-MM-DD.log")
+            # Console output with enhanced status
+            if self.enhanced:
+                print("🚀 Starting Enhanced Detection System...")
+                if self.optimized_config:
+                    cam_config = self.optimized_config["camera"]
+                    print(f"🎯 Hardware-adaptive: {cam_config['target_size']} @ {cam_config['fps_limit']}fps")
+                print("✅ Input validation: Enabled")
+                print("📊 Performance monitoring: Enabled")
+            else:
+                print("🚀 Starting Detection System...")
+            print("📊 Logs: log/fatigue_detection_YYYY-MM-DD.log")
         
         self.is_running = True
         
@@ -716,9 +801,9 @@ class OptimizedFatigueDetectionPipeline:
         alert_history.clear_session()
 
 
-def create_pipeline(config: Optional[Dict[str, Any]] = None, gui_mode: bool = False) -> OptimizedFatigueDetectionPipeline:
-    """Factory function for creating optimized pipeline"""
-    return OptimizedFatigueDetectionPipeline(config, gui_mode)
+def create_pipeline(config: Optional[Dict[str, Any]] = None, gui_mode: bool = False, enhanced: bool = False, detection_engine: Optional[Any] = None) -> OptimizedFatigueDetectionPipeline:
+    """Factory function for creating optimized pipeline with optional detection engine"""
+    return OptimizedFatigueDetectionPipeline(config, gui_mode, enhanced, detection_engine)
 
 
 if __name__ == "__main__":

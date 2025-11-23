@@ -25,9 +25,11 @@ from typing import Dict, List, Tuple, Optional, Any
 from enum import Enum
 import numpy as np
 
-from ..detect_rules.ear import calculate_ear, reset_ear_state, get_ear_statistics
+from ..detect_rules.ear import calculate_ear_full, reset_ear_state, get_ear_statistics
 from ..detect_rules.mar import calculate_mar_with_analysis, reset_mar_state, get_mar_statistics  
 from ..detect_rules.head_pose import calculate_head_pose_with_analysis, reset_head_pose_state, get_head_pose_statistics
+from ..detect_rules.optimized_thresholds import OptimizedThresholds, get_ear_thresholds, get_mar_thresholds, get_head_pose_thresholds
+from ..detect_rules.optimized_integration import OptimizedDetectionEngine
 
 
 class AlertLevel(Enum):
@@ -85,7 +87,9 @@ class RuleBasedFatigueDetector:
                  mar_config: Optional[Dict] = None,
                  head_pose_config: Optional[Dict] = None,
                  combination_threshold: int = 2,
-                 critical_duration: float = 3.0):
+                 critical_duration: float = 3.0,
+                 use_optimized_engine: bool = False,
+                 detection_engine: Optional[OptimizedDetectionEngine] = None):
         """
         Args:
             ear_config: Cấu hình cho EAR functions
@@ -94,10 +98,19 @@ class RuleBasedFatigueDetector:
             combination_threshold: Số lượng điều kiện tối thiểu để báo HIGH alert
             critical_duration: Thời gian duy trì HIGH alert để chuyển thành CRITICAL
         """
-        # Lưu cấu hình để truyền vào functions
-        self.ear_config = ear_config or {}
-        self.mar_config = mar_config or {}
-        self.head_pose_config = head_pose_config or {}
+        # Optimized detection engine
+        self.use_optimized_engine = use_optimized_engine
+        self.detection_engine = detection_engine
+        
+        # Lưu cấu hình để truyền vào functions - với optimized defaults
+        if use_optimized_engine:
+            self.ear_config = get_ear_thresholds(**(ear_config or {}))
+            self.mar_config = get_mar_thresholds(**(mar_config or {}))
+            self.head_pose_config = get_head_pose_thresholds(**(head_pose_config or {}))
+        else:
+            self.ear_config = ear_config or {}
+            self.mar_config = mar_config or {}
+            self.head_pose_config = head_pose_config or {}
         
         # Cấu hình rule-based
         self.combination_threshold = combination_threshold
@@ -127,10 +140,16 @@ class RuleBasedFatigueDetector:
         """
         timestamp = time.time()
         
-        # 1. Tính toán EAR
+        # Nếu có optimized detection engine, sử dụng nó
+        if self.use_optimized_engine and self.detection_engine:
+            return self._process_with_optimized_engine(features, frame_shape, timestamp)
+        
+        # Fallback to original processing
+        
+        # 1. Tính toán EAR với optimized parameters
         ear_result = None
         if features.get("left_eye") and features.get("right_eye"):
-            ear_result = calculate_ear(
+            ear_result = calculate_ear_full(
                 features["left_eye"], features["right_eye"], **self.ear_config
             )
         
@@ -153,6 +172,96 @@ class RuleBasedFatigueDetector:
             self.detection_history.pop(0)
         
         return combined_result
+    
+    def _process_with_optimized_engine(self, 
+                                     features: Dict[str, List[Tuple[int, int, float]]], 
+                                     frame_shape: Tuple[int, int],
+                                     timestamp: float) -> Dict[str, Any]:
+        """
+        Xử lý frame sử dụng optimized detection engine.
+        
+        Args:
+            features: Face landmarks
+            frame_shape: Frame dimensions
+            timestamp: Current timestamp
+            
+        Returns:
+            Dict chứa kết quả optimized detection
+        """
+        # Process với optimized engine
+        optimized_result = self.detection_engine.process_frame(features, frame_shape)
+        
+        # Convert optimized result to compatible format
+        compatible_result = self._convert_optimized_result(optimized_result, timestamp)
+        
+        # Lưu vào lịch sử
+        self.detection_history.append(compatible_result)
+        if len(self.detection_history) > self.max_history:
+            self.detection_history.pop(0)
+            
+        return compatible_result
+    
+    def _convert_optimized_result(self, optimized_result: Dict[str, Any], timestamp: float) -> Dict[str, Any]:
+        """
+        Convert optimized engine result to rule-based format.
+        
+        Args:
+            optimized_result: Result from OptimizedDetectionEngine
+            timestamp: Current timestamp
+            
+        Returns:
+            Dict in rule-based format
+        """
+        # Map optimized states to rule-based enums
+        combined_state = optimized_result.get("combined_state", "normal")
+        confidence = optimized_result.get("confidence", 0.0)
+        
+        # Convert to AlertLevel
+        if combined_state == "severe_drowsiness":
+            alert_level = AlertLevel.CRITICAL
+        elif combined_state == "moderate_drowsiness":
+            alert_level = AlertLevel.HIGH
+        elif combined_state == "mild_drowsiness":
+            alert_level = AlertLevel.MEDIUM
+        else:
+            alert_level = AlertLevel.NONE
+            
+        # Convert to FatigueState
+        fatigue_state = self._determine_fatigue_state(alert_level)
+        
+        # Get recommendation
+        recommendation = self._get_recommendation(alert_level, fatigue_state)
+        
+        # Count alerts
+        if alert_level in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
+            self.total_alerts += 1
+            
+        # Handle critical duration escalation
+        if alert_level == AlertLevel.HIGH:
+            if self.high_alert_start_time is None:
+                self.high_alert_start_time = timestamp
+            
+            alert_duration = timestamp - self.high_alert_start_time
+            if alert_duration >= self.critical_duration:
+                alert_level = AlertLevel.CRITICAL
+        else:
+            self.high_alert_start_time = None
+        
+        return {
+            "timestamp": timestamp,
+            "ear": optimized_result.get("ear_analysis"),
+            "mar": optimized_result.get("mar_analysis"), 
+            "head_pose": optimized_result.get("head_pose_analysis"),
+            "eye_state": EyeState.DROWSY if "ear_drowsy" in optimized_result.get("state_indicators", []) else EyeState.OPEN,
+            "mouth_state": MouthState.YAWNING if "mar_yawn" in optimized_result.get("state_indicators", []) else MouthState.CLOSED,
+            "head_state": HeadState.HEAD_DOWN_DROWSY if "head_drowsy" in optimized_result.get("state_indicators", []) else HeadState.NORMAL,
+            "alert_conditions": optimized_result.get("state_indicators", []),
+            "alert_level": alert_level,
+            "fatigue_state": fatigue_state,
+            "confidence": confidence,
+            "recommendation": recommendation,
+            "optimized_engine_used": True
+        }
     
     def _combine_results(self, 
                         ear_result: Optional[Dict], 
@@ -473,23 +582,23 @@ class FatigueDetectionConfig:
     
     @staticmethod
     def get_default_config() -> Dict[str, Any]:
-        """Lấy cấu hình mặc định."""
+        """Lấy cấu hình mặc định với optimized values."""
         return {
             "ear_config": {
-                "blink_threshold": 0.2,
-                "blink_frames": 3,
-                "drowsy_threshold": 0.2,
-                "drowsy_duration": 1.5
+                "blink_threshold": 0.25,  # Optimized từ 0.2
+                "blink_frames": 2,        # Optimized từ 3
+                "drowsy_threshold": 0.22, # Optimized từ 0.2
+                "drowsy_duration": 1.2    # Optimized từ 1.5
             },
             "mar_config": {
-                "yawn_threshold": 0.6,
-                "yawn_duration": 1.2,
-                "speaking_threshold": 0.4
+                "yawn_threshold": 0.65,    # Optimized từ 0.6
+                "yawn_duration": 1.0,      # Optimized từ 1.2
+                "speaking_threshold": 0.35 # Optimized từ 0.4
             },
             "head_pose_config": {
                 "normal_threshold": 12.0,
-                "drowsy_threshold": 20.0,
-                "drowsy_duration": 2.0
+                "drowsy_threshold": 18.0,  # Optimized từ 20.0
+                "drowsy_duration": 1.3     # Optimized từ 2.0
             },
             "combination_threshold": 2,
             "critical_duration": 3.0
@@ -497,31 +606,76 @@ class FatigueDetectionConfig:
     
     @staticmethod
     def get_sensitive_config() -> Dict[str, Any]:
-        """Cấu hình nhạy cảm hơn (phát hiện sớm hơn)."""
+        """Cấu hình nhạy cảm hơn với optimized values."""
         config = FatigueDetectionConfig.get_default_config()
-        config["ear_config"]["drowsy_duration"] = 1.0
-        config["mar_config"]["yawn_duration"] = 0.8
-        config["head_pose_config"]["drowsy_duration"] = 1.0
+        # Sensitive adjustments based on optimized baseline
+        config["ear_config"]["blink_threshold"] = 0.27     # Tăng sensitivity
+        config["ear_config"]["drowsy_duration"] = 0.8      # Giảm duration
+        config["mar_config"]["yawn_threshold"] = 0.6       # Giảm threshold
+        config["mar_config"]["yawn_duration"] = 0.7        # Giảm duration
+        config["head_pose_config"]["drowsy_threshold"] = 15.0  # Giảm threshold
+        config["head_pose_config"]["drowsy_duration"] = 0.8     # Giảm duration
         config["combination_threshold"] = 1
         config["critical_duration"] = 2.0
         return config
     
     @staticmethod
     def get_conservative_config() -> Dict[str, Any]:
-        """Cấu hình bảo thủ hơn (ít false positive)."""
+        """Cấu hình bảo thủ hơn với optimized values."""
         config = FatigueDetectionConfig.get_default_config()
-        config["ear_config"]["drowsy_duration"] = 2.5
-        config["mar_config"]["yawn_duration"] = 2.0
-        config["head_pose_config"]["drowsy_duration"] = 2.5
+        # Conservative adjustments giảm false positives
+        config["ear_config"]["blink_threshold"] = 0.23     # Giảm sensitivity
+        config["ear_config"]["drowsy_duration"] = 2.0      # Tăng duration
+        config["mar_config"]["yawn_threshold"] = 0.7       # Tăng threshold
+        config["mar_config"]["yawn_duration"] = 1.5        # Tăng duration
+        config["head_pose_config"]["drowsy_threshold"] = 22.0  # Tăng threshold
+        config["head_pose_config"]["drowsy_duration"] = 2.0     # Tăng duration
         config["combination_threshold"] = 3
         config["critical_duration"] = 5.0
         return config
+    
+    @staticmethod
+    def create_optimized_detector(lighting: str = "normal", camera_quality: str = "medium") -> 'RuleBasedFatigueDetector':
+        """
+        Tạo RuleBasedFatigueDetector với optimized engine.
+        
+        Args:
+            lighting: Điều kiện ánh sáng (low/normal/bright)
+            camera_quality: Chất lượng camera (low/medium/high)
+            
+        Returns:
+            RuleBasedFatigueDetector với optimized engine
+        """
+        from ..detect_rules.optimized_integration import create_optimized_engine
+        
+        # Create optimized detection engine
+        detection_engine = create_optimized_engine(lighting, camera_quality)
+        
+        # Get optimized config
+        config = FatigueDetectionConfig.get_default_config()
+        
+        # Create detector với optimized engine
+        detector = RuleBasedFatigueDetector(
+            use_optimized_engine=True,
+            detection_engine=detection_engine,
+            **config
+        )
+        
+        return detector
 
 
 if __name__ == "__main__":
-    # Test với dữ liệu mẫu
+    # Test với dữ liệu mẫu - both original and optimized
+    print("=== TESTING RULE-BASED FATIGUE DETECTOR ===")
+    
+    # Test original detector
+    print("\n1. Testing Original Detector:")
     config = FatigueDetectionConfig.get_default_config()
     detector = RuleBasedFatigueDetector(**config)
+    
+    # Test optimized detector
+    print("\n2. Testing Optimized Detector:")
+    optimized_detector = FatigueDetectionConfig.create_optimized_detector("normal", "medium")
     
     # Mock features
     mock_features = {
@@ -532,15 +686,25 @@ if __name__ == "__main__":
         "face_outline": [(300, 400, 0.0), (340, 400, 0.0), (320, 420, 0.0), (320, 450, 0.0)]
     }
     
-    # Test detection
+    # Test detection với original detector
     result = detector.process_frame(mock_features, (480, 640))
     
-    print(f"Alert Level: {result['alert_level'].value}")
-    print(f"Fatigue State: {result['fatigue_state'].value}")
-    print(f"Confidence: {result['confidence']:.2f}")
-    print(f"Recommendation: {result['recommendation']}")
-    print(f"Alert Conditions: {result['alert_conditions']}")
+    print(f"   Alert Level: {result['alert_level'].value}")
+    print(f"   Fatigue State: {result['fatigue_state'].value}")
+    print(f"   Confidence: {result['confidence']:.2f}")
+    print(f"   Recommendation: {result['recommendation']}")
     
-    # Test summary
-    summary = detector.get_detection_summary()
-    print(f"\nSession Summary: {summary['latest_state']}")
+    # Test detection với optimized detector
+    optimized_result = optimized_detector.process_frame(mock_features, (480, 640))
+    
+    print(f"   Optimized Alert Level: {optimized_result['alert_level'].value}")
+    print(f"   Optimized Fatigue State: {optimized_result['fatigue_state'].value}")
+    print(f"   Optimized Confidence: {optimized_result['confidence']:.2f}")
+    print(f"   Used Optimized Engine: {optimized_result.get('optimized_engine_used', False)}")
+    
+    print("\n=== COMPARISON ===")
+    print(f"Original Confidence: {result['confidence']:.3f}")
+    print(f"Optimized Confidence: {optimized_result['confidence']:.3f}")
+    print(f"Improvement: {(optimized_result['confidence'] - result['confidence'])*100:+.1f}%")
+    
+    print("\n✅ RULE-BASED DETECTOR OPTIMIZATION COMPLETE!")

@@ -16,6 +16,7 @@ import time
 import threading
 import queue
 import logging
+import numpy as np
 from typing import Optional, Tuple, Dict, Union
 
 # Nếu bạn có app.config, import các tham số mặc định từ đó.
@@ -76,7 +77,12 @@ class CameraHandler(threading.Thread):
                  color: str = "rgb",
                  normalize: bool = False,
                  fps_limit: Optional[float] = CameraConstants.DEFAULT_FPS_LIMIT,
-                 auto_reconnect: bool = True):
+                 auto_reconnect: bool = True,
+                 # Enhanced parameters for face detection optimization
+                 exposure: Optional[int] = None,
+                 brightness: Optional[int] = None,
+                 contrast: Optional[int] = None,
+                 validate_quality: bool = True):
         super().__init__(daemon=True)
         self.src = src
         self.queue = queue.Queue(maxsize=queue_size)
@@ -87,6 +93,22 @@ class CameraHandler(threading.Thread):
         self.fps_limit = fps_limit
         self._frame_interval = (1.0 / fps_limit) if fps_limit and fps_limit > 0 else None
         self.auto_reconnect = auto_reconnect
+        self.validate_quality = validate_quality
+        
+        # Camera properties for optimization
+        self.camera_properties = {
+            'exposure': exposure,
+            'brightness': brightness,
+            'contrast': contrast
+        }
+        
+        # Validation for target_size
+        if target_size:
+            w, h = target_size
+            if w < 320 or h < 240:
+                logger.warning(f"Target size {target_size} may be too small for accurate landmark detection")
+            if w > 1920 or h > 1080:
+                logger.warning(f"Target size {target_size} may impact performance")
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._stop_event = threading.Event()
@@ -94,8 +116,11 @@ class CameraHandler(threading.Thread):
         self.stats = {
             "frames_read": 0,
             "frames_dropped_queue_full": 0,
+            "frames_poor_quality": 0,
             "last_open_failed": False,
-            "open_attempts": 0
+            "open_attempts": 0,
+            "avg_brightness": 0.0,
+            "avg_contrast": 0.0
         }
 
     def _open_capture(self):
@@ -154,6 +179,19 @@ class CameraHandler(threading.Thread):
             cap.set(cv2.CAP_PROP_FPS, 30)  # Set desired FPS
             
             self._cap = cap
+            # Configure additional camera properties
+            self._configure_camera_properties()
+            
+            # Verify frame quality
+            if self.validate_quality:
+                ret, test_frame = self._cap.read()
+                if ret and test_frame is not None:
+                    quality_ok = self._validate_frame_quality(test_frame)
+                    if quality_ok:
+                        logger.info("Camera opened with good frame quality")
+                    else:
+                        logger.warning("Camera frame quality may affect detection accuracy")
+            
             self.stats["last_open_failed"] = False
             logger.info(f"CameraHandler: opened source {self.src}")
             return True
@@ -220,6 +258,12 @@ class CameraHandler(threading.Thread):
             else:
                 frame_proc = frame_out
 
+            # Validate frame quality if enabled
+            if self.validate_quality and not self._validate_frame_quality(frame_proc):
+                self.stats["frames_poor_quality"] += 1
+                logger.debug("CameraHandler: dropping frame due to poor quality")
+                continue
+            
             # Put frame into queue (non-blocking with drop policy)
             try:
                 self.queue.put_nowait({
@@ -229,7 +273,8 @@ class CameraHandler(threading.Thread):
                         "orig_size": (int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                                       int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
                         "target_size": self.target_size,
-                        "src": self.src
+                        "src": self.src,
+                        "validated": self.validate_quality
                     }
                 })
                 self.stats["frames_read"] += 1
@@ -248,6 +293,67 @@ class CameraHandler(threading.Thread):
                 pass
         self._is_running = False
         logger.info("CameraHandler: thread exiting")
+    
+    def _configure_camera_properties(self):
+        """Configure camera properties for optimal landmark detection"""
+        if self._cap is None:
+            return False
+            
+        try:
+            # Set properties for better face detection
+            if self.camera_properties['exposure'] is not None:
+                self._cap.set(cv2.CAP_PROP_EXPOSURE, self.camera_properties['exposure'])
+            
+            if self.camera_properties['brightness'] is not None:
+                self._cap.set(cv2.CAP_PROP_BRIGHTNESS, self.camera_properties['brightness'])
+                
+            if self.camera_properties['contrast'] is not None:
+                self._cap.set(cv2.CAP_PROP_CONTRAST, self.camera_properties['contrast'])
+            
+            # Auto focus for better face clarity if available
+            try:
+                self._cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+            except Exception:
+                pass  # Not all cameras support this
+            
+            logger.debug("Camera properties configured for landmark detection")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Could not set camera properties: {e}")
+            return False
+    
+    def _validate_frame_quality(self, frame: np.ndarray) -> bool:
+        """Validate frame quality for landmark detection"""
+        if frame is None or frame.size == 0:
+            return False
+            
+        # Convert to grayscale for analysis
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame
+            
+        # Check brightness (avoid too dark/bright frames)
+        brightness = np.mean(gray)
+        self.stats["avg_brightness"] = float(brightness)
+        
+        if brightness < 40:
+            logger.warning(f"Frame too dark (brightness: {brightness:.1f})")
+            return False
+        elif brightness > 210:
+            logger.warning(f"Frame too bright (brightness: {brightness:.1f})")
+            return False
+            
+        # Check contrast
+        contrast = np.std(gray)
+        self.stats["avg_contrast"] = float(contrast)
+        
+        if contrast < 20:
+            logger.warning(f"Low contrast detected (contrast: {contrast:.1f})")
+            return False
+            
+        return True
 
     def start(self):
         """Start thread (override to ensure thread begins)."""
@@ -277,6 +383,56 @@ class CameraHandler(threading.Thread):
             return self.queue.get(block=block, timeout=timeout)
         except queue.Empty:
             return None
+    
+    def get_frame_with_metadata(self, block: bool = False, timeout: float = 0.01) -> Optional[Dict]:
+        """Enhanced frame retrieval with quality metadata"""
+        frame_data = self.get_frame(block, timeout)
+        if frame_data is None:
+            return None
+            
+        frame = frame_data["frame"]
+        
+        # Add quality metrics if validation is enabled
+        if self.validate_quality:
+            quality_metrics = self._calculate_frame_quality(frame)
+            frame_data["quality"] = quality_metrics
+        
+        return frame_data
+    
+    def _calculate_frame_quality(self, frame: np.ndarray) -> Dict:
+        """Calculate frame quality metrics for processing layer"""
+        if frame is None or frame.size == 0:
+            return {"valid": False}
+            
+        # Convert to grayscale for analysis
+        if len(frame.shape) == 3:
+            if self.color == "rgb":
+                gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame
+            
+        # Calculate quality metrics
+        brightness = float(np.mean(gray))
+        contrast = float(np.std(gray))
+        
+        # Blur detection using Laplacian variance
+        blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        
+        is_acceptable = (
+            40 <= brightness <= 210 and 
+            contrast >= 20 and 
+            blur_score >= 80
+        )
+        
+        return {
+            "valid": True,
+            "brightness": brightness,
+            "contrast": contrast,
+            "blur_score": blur_score,
+            "is_acceptable": is_acceptable
+        }
 
     def snapshot(self, path: str) -> bool:
         """Save latest frame (non-blocking). Return True if saved."""
