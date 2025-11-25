@@ -14,9 +14,13 @@ authors = [
 ]
 
 dependencies = [
-    "opencv-python",
-    "mediapipe",
-    "numpy"
+    "opencv-python>=4.8.0",
+    "mediapipe==0.10.14",
+    "numpy>=1.21.0",
+    "imutils>=0.5.4",
+    "Pillow>=9.0.0",
+    "pygame>=2.1.0",
+    "my-internal-lib"
 ]
 
 [tool.setuptools]

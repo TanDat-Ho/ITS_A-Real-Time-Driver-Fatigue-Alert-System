@@ -1,0 +1,15 @@
+# Driver Fatigue Detection System Dependencies
+# Python 3.8-3.11 required (mediapipe compatibility)
+
+opencv-python>=4.8.0
+mediapipe==0.10.14
+numpy>=1.21.0
+imutils>=0.5.4
+Pillow>=9.0.0
+pygame>=2.1.0
+my-internal-lib
+
+# Optional development dependencies
+pytest>=7.0.0
+build>=0.10.0
+twine>=4.0.0

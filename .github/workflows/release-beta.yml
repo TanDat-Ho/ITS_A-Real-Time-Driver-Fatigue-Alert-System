@@ -1,16 +1,17 @@
-name: GitHub Package Registry
+name: Beta Release
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    tags:
+      - 'v*-beta*'
+      - 'v*-alpha*'
   workflow_dispatch:
 
 jobs:
-  publish-github:
+  beta-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout Repository
@@ -18,8 +19,8 @@ jobs:
         
       - name: Setup Python
         uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        with: 
+          python-version: '3.11'
           
       - name: Install build dependencies
         run: |
@@ -29,9 +30,10 @@ jobs:
       - name: Build package
         run: python -m build
         
-      - name: Publish to GitHub Packages
-        run: |
-          python -m twine upload --repository-url https://upload.pypi.org/legacy/ dist/* --verbose
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: dist/*
+          generate_release_notes: true
+          draft: false
