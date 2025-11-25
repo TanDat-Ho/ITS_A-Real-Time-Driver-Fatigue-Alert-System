@@ -13,7 +13,29 @@ Kết quả đầu ra được sử dụng bởi rule-based processor để tín
 import cv2
 import mediapipe as mp
 import numpy as np
+import logging
 from typing import Optional, Tuple, List, Dict, Any
+
+# Setup module logger
+logger = logging.getLogger(__name__)
+
+# Constants
+class LandmarkConstants:
+    """Constants for landmark detection"""
+    DEFAULT_FRAME_SIZE = (640, 480, 3)
+    MIN_LANDMARKS_COUNT = 468
+    
+    # MediaPipe Face Mesh landmark indices
+    LEFT_EYE_IDX = [33, 160, 158, 133, 153, 144]
+    RIGHT_EYE_IDX = [362, 385, 387, 263, 373, 380]
+    MOUTH_IDX = [13, 14, 78, 308, 82, 312]
+    NOSE_TIP_IDX = [1]
+    FACE_OUTLINE_IDX = [10, 152, 234, 454]
+    
+    # Colors for debug visualization (BGR format)
+    EYE_COLOR = (0, 255, 0)      # Green for eyes
+    MOUTH_COLOR = (255, 0, 0)    # Blue for mouth  
+    NOSE_COLOR = (0, 0, 255)     # Red for nose
 
 
 class FaceLandmarkDetector:
@@ -21,19 +43,112 @@ class FaceLandmarkDetector:
     Lớp xử lý phát hiện khuôn mặt và lấy tọa độ landmarks sử dụng Mediapipe.
     """
 
-    def __init__(self, static_mode=False, max_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5):
-        self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=static_mode,
-            max_num_faces=max_faces,
-            refine_landmarks=refine_landmarks,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence
-        )
-        self.mp_draw = mp.solutions.drawing_utils
-        self.draw_spec = self.mp_draw.DrawingSpec(thickness=1, circle_radius=1, color=(0, 255, 0))
+    def __init__(self, static_mode=False, max_faces=1, refine_landmarks=True, min_detection_confidence=0.7, min_tracking_confidence=0.7):
+        # Validate parameters
+        self._validate_parameters(static_mode, max_faces, refine_landmarks, 
+                                min_detection_confidence, min_tracking_confidence)
+        
+        try:
+            self.mp_face_mesh = mp.solutions.face_mesh
+            self.face_mesh = self.mp_face_mesh.FaceMesh(
+                static_image_mode=static_mode,
+                max_num_faces=max_faces,
+                refine_landmarks=refine_landmarks,
+                min_detection_confidence=min_detection_confidence,
+                min_tracking_confidence=min_tracking_confidence
+            )
+            self.mp_draw = mp.solutions.drawing_utils
+            self.draw_spec = self.mp_draw.DrawingSpec(thickness=1, circle_radius=1, color=(0, 255, 0))
+            
+            # Tracking state for stability
+            self.tracking_state = {
+                "consecutive_detections": 0,
+                "consecutive_failures": 0,
+                "last_landmarks": None,
+                "stability_threshold": 5,
+                "confidence_history": []
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize MediaPipe Face Mesh: {e}")
+            raise
+    
+    def _validate_parameters(self, static_mode, max_faces, refine_landmarks, 
+                           min_detection_confidence, min_tracking_confidence):
+        """Validate MediaPipe parameters"""
+        if not isinstance(static_mode, bool):
+            raise ValueError("static_mode must be boolean")
+            
+        if not isinstance(max_faces, int) or max_faces < 1 or max_faces > 10:
+            raise ValueError("max_faces must be integer between 1-10")
+            
+        if not isinstance(refine_landmarks, bool):
+            raise ValueError("refine_landmarks must be boolean")
+            
+        if not (0.0 <= min_detection_confidence <= 1.0):
+            raise ValueError("min_detection_confidence must be between 0.0-1.0")
+            
+        if not (0.0 <= min_tracking_confidence <= 1.0):
+            raise ValueError("min_tracking_confidence must be between 0.0-1.0")
+    
+    def _validate_input_frame(self, frame: np.ndarray) -> Dict:
+        """Validate input frame quality for landmark detection"""
+        result = {"valid": True, "warnings": []}
+        
+        if frame is None:
+            return {"valid": False, "error": "Frame is None"}
+            
+        if frame.size == 0:
+            return {"valid": False, "error": "Frame is empty"}
+            
+        # Check frame dimensions
+        if len(frame.shape) != 3:
+            result["warnings"].append("Frame is not 3-channel color image")
+            
+        h, w = frame.shape[:2]
+        if w < 320 or h < 240:
+            result["warnings"].append(f"Frame resolution ({w}x{h}) may be too low for accurate detection")
+            
+        # Check frame quality
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+        brightness = np.mean(gray)
+        contrast = np.std(gray)
+        
+        if brightness < 30:
+            result["warnings"].append(f"Frame too dark (brightness: {brightness:.1f})")
+        elif brightness > 220:
+            result["warnings"].append(f"Frame too bright (brightness: {brightness:.1f})")
+            
+        if contrast < 20:
+            result["warnings"].append(f"Low contrast (contrast: {contrast:.1f})")
+            
+        result["frame_quality"] = {
+            "brightness": float(brightness),
+            "contrast": float(contrast),
+            "resolution": (w, h)
+        }
+        
+        return result
+    
+    def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Preprocess frame for better landmark detection"""
+        processed = frame.copy()
+        
+        # Light noise reduction
+        processed = cv2.bilateralFilter(processed, 5, 50, 50)
+        
+        # Histogram equalization for better contrast
+        if len(processed.shape) == 3:
+            # Convert to YUV and equalize Y channel
+            yuv = cv2.cvtColor(processed, cv2.COLOR_BGR2YUV)
+            yuv[:,:,0] = cv2.equalizeHist(yuv[:,:,0])
+            processed = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+        else:
+            processed = cv2.equalizeHist(processed)
+            
+        return processed
 
-    def detect(self, frame: np.ndarray, draw: bool = False) -> Tuple[List[Tuple[int, int, float]], np.ndarray]:
+    def detect(self, frame: np.ndarray, draw: bool = False) -> Tuple[List[Tuple[int, int, float]], np.ndarray, Dict]:
         """
         Phát hiện landmarks trên frame.
 
@@ -45,7 +160,8 @@ class FaceLandmarkDetector:
             tuple: (face_landmarks, annotated_frame)
         """
         if frame is None or frame.size == 0:
-            return [], frame if frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+            detection_result = {"valid": False, "error": "Frame is None or empty"}
+            return [], frame if frame is not None else np.zeros(LandmarkConstants.DEFAULT_FRAME_SIZE, dtype=np.uint8), detection_result
             
         try:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -66,10 +182,12 @@ class FaceLandmarkDetector:
                             self.draw_spec,
                             self.draw_spec
                         )
-            return landmarks, frame
+            detection_result = {"valid": True, "face_detected": len(landmarks) > 0, "landmarks_count": len(landmarks)}
+            return landmarks, frame, detection_result
         except Exception as e:
-            print(f"MediaPipe detection error: {e}")
-            return [], frame
+            logger.error(f"MediaPipe detection error: {e}")
+            detection_result = {"valid": False, "error": str(e), "face_detected": False}
+            return [], frame, detection_result
 
     def extract_important_points(self, landmarks: List[Tuple[int, int, float]]) -> Optional[Dict[str, List[Tuple[int, int, float]]]]:
         """
@@ -85,15 +203,15 @@ class FaceLandmarkDetector:
             return None
 
         # Eye landmarks (6 points each for EAR calculation)
-        left_eye_idx = [33, 160, 158, 133, 153, 144]      # Left eye contour
-        right_eye_idx = [362, 385, 387, 263, 373, 380]    # Right eye contour
+        left_eye_idx = LandmarkConstants.LEFT_EYE_IDX      # Left eye contour
+        right_eye_idx = LandmarkConstants.RIGHT_EYE_IDX    # Right eye contour
         
         # Mouth landmarks (6 points for MAR calculation)  
-        mouth_idx = [13, 14, 78, 308, 82, 312]             # Mouth corners + top/bottom
+        mouth_idx = LandmarkConstants.MOUTH_IDX             # Mouth corners + top/bottom
         
         # Head pose landmarks
-        nose_tip_idx = [1]                                 # Nose tip
-        face_outline_idx = [10, 152, 234, 454]             # Face boundary points
+        nose_tip_idx = LandmarkConstants.NOSE_TIP_IDX       # Nose tip
+        face_outline_idx = LandmarkConstants.FACE_OUTLINE_IDX # Face boundary points
 
         def get_points(idxs):
             return [landmarks[i] for i in idxs if i < len(landmarks)]
@@ -119,11 +237,11 @@ class FaceLandmarkDetector:
 
         # Màu sắc cho từng vùng
         COLORS = {
-            "left_eye": (0, 255, 0),     # Xanh lá
-            "right_eye": (0, 255, 255),  # Vàng
-            "mouth": (0, 0, 255),        # Đỏ
-            "nose": (255, 0, 0),         # Xanh dương
-            "face_outline": (255, 255, 0) # Xanh nhạt
+            "left_eye": LandmarkConstants.EYE_COLOR,     # Green for eyes
+            "right_eye": LandmarkConstants.EYE_COLOR,    # Green for eyes  
+            "mouth": LandmarkConstants.MOUTH_COLOR,      # Blue for mouth
+            "nose": LandmarkConstants.NOSE_COLOR,        # Red for nose
+            "face_outline": (255, 255, 0) # Cyan for face outline
         }
 
         for region, pts in features.items():

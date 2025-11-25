@@ -65,16 +65,24 @@ def extract_2d_points(features: Dict[str, List[Tuple[int, int, float]]]) -> Opti
         np.ndarray: Mảng 6 điểm 2D tương ứng hoặc None
     """
     try:
-        # Lấy điểm mũi (nose tip)
-        if not features.get("nose") or len(features["nose"]) == 0:
-            return None
-        nose_tip = features["nose"][0]  # (x, y, z)
+        # Kiểm tra tính hợp lệ của features trước khi xử lý
+        required_features = ["nose", "face_outline", "left_eye", "right_eye", "mouth"]
+        for feature in required_features:
+            if not features.get(feature) or len(features[feature]) == 0:
+                return None
         
-        # Ước tính điểm cằm từ face_outline (điểm thấp nhất)
+        # Lấy điểm mũi (nose tip) - kiểm tra tính hợp lệ
+        nose_tip = features["nose"][0]  # (x, y, z)
+        if not (0 <= nose_tip[0] <= 2000 and 0 <= nose_tip[1] <= 2000):  # Sanity check
+            return None
+        
+        # Ước tính điểm cằm từ face_outline (điểm thấp nhất) - improved selection
         face_outline = features.get("face_outline", [])
         if len(face_outline) < 4:
             return None
-        chin = max(face_outline, key=lambda p: p[1])  # Điểm có y lớn nhất (thấp nhất)
+        # Chọn điểm cằm chính xác hơn
+        chin_candidates = [p for p in face_outline if p[1] > nose_tip[1]]  # Chỉ lấy điểm dưới mũi
+        chin = max(chin_candidates, key=lambda p: p[1]) if chin_candidates else max(face_outline, key=lambda p: p[1])
         
         # Lấy góc mắt
         left_eye = features.get("left_eye", [])
@@ -183,9 +191,9 @@ def calculate_head_pose(features: Dict[str, List[Tuple[int, int, float]]],
 
 
 def analyze_head_pose_state(pose_data: Optional[Dict[str, float]], 
-                           normal_threshold: float = 10.0,
-                           drowsy_threshold: float = 15.0,
-                           drowsy_duration: float = 1.5) -> Dict[str, Any]:
+                           normal_threshold: float = 12.0,  # Tăng từ 10.0 cho tolerance hơn
+                           drowsy_threshold: float = 18.0,  # Tăng từ 15.0 giảm false positive
+                           drowsy_duration: float = 1.3) -> Dict[str, Any]:  # Giảm từ 1.5
     """
     Analyze head state based on pitch angle.
     
@@ -301,6 +309,31 @@ def calculate_head_pitch(features: Dict[str, List[Tuple[int, int, float]]],
     pose_data = calculate_head_pose(features, frame_shape)
     return pose_data["pitch"] if pose_data else None
 
+
+def estimate_head_pose(landmarks: List[Tuple[int, int, float]], frame_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
+    """
+    Compatibility function cho enhanced main integration.
+    
+    Args:
+        landmarks: List các landmarks từ nose + face_outline
+        frame_shape: (height, width) của frame
+        
+    Returns:
+        Dict chứa thông tin head pose hoặc None
+    """
+    # Fake features dict từ landmarks
+    if len(landmarks) < 5:
+        return None
+        
+    features = {
+        "nose": [landmarks[0]] if len(landmarks) > 0 else [],
+        "face_outline": landmarks[1:] if len(landmarks) > 1 else [],
+        "left_eye": [(landmarks[0][0] - 50, landmarks[0][1] - 30, 0)] * 6,  # Mock data
+        "right_eye": [(landmarks[0][0] + 50, landmarks[0][1] - 30, 0)] * 6,  # Mock data
+        "mouth": [(landmarks[0][0], landmarks[0][1] + 60, 0)] * 6  # Mock data
+    }
+    
+    return calculate_head_pose(features, frame_shape)
 
 if __name__ == "__main__":
     # Test với dữ liệu mẫu

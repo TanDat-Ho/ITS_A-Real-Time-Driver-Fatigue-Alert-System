@@ -87,40 +87,49 @@ def calculate_ear_both_eyes(left_eye: List[Tuple[int, int, float]],
     left_ear = calculate_ear_single_eye(left_eye)
     right_ear = calculate_ear_single_eye(right_eye)
     
-    # Trung bình cộng
-    avg_ear = (left_ear + right_ear) / 2.0
+    # Kiểm tra tính hợp lệ của giá trị EAR
+    if left_ear <= 0 or right_ear <= 0:
+        return 0.0
+        
+    # Trên và hành bình cộng với weighted average (giảm noise)
+    # Nếu một mắt có EAR bất thường, giảm trọng số
+    weight_left = 1.0 if 0.1 <= left_ear <= 0.5 else 0.7
+    weight_right = 1.0 if 0.1 <= right_ear <= 0.5 else 0.7
     
-    # Lưu vào lịch sử
+    total_weight = weight_left + weight_right
+    avg_ear = (left_ear * weight_left + right_ear * weight_right) / total_weight
+    
+    # Smoothing với moving average
     _ear_state["ear_history"].append(avg_ear)
     if len(_ear_state["ear_history"]) > _ear_state["max_history"]:
         _ear_state["ear_history"].pop(0)
         
+    # Trả về smoothed value nếu có đủ lịch sử
+    if len(_ear_state["ear_history"]) >= 3:
+        # Simple moving average 3 frames để giảm noise
+        return np.mean(_ear_state["ear_history"][-3:])
+    
     return avg_ear
 
-
-def analyze_ear_state(ear_value: float, 
-                     blink_threshold: float = 0.2,
-                     blink_frames: int = 3,
-                     drowsy_threshold: float = 0.2,
-                     drowsy_duration: float = 1.5) -> Dict[str, Any]:
+# Compatibility alias
+def calculate_ear(eye_landmarks: List[Tuple[int, int, float]]) -> float:
     """
-    Analyze eye state based on EAR value.
+    Alias cho calculate_ear_single_eye để compatibility
     
     Args:
-        ear_value: Current EAR value
-        blink_threshold: EAR threshold to detect blink
-        blink_frames: Consecutive frames to confirm blink
-        drowsy_threshold: EAR threshold to detect drowsiness
-        drowsy_duration: Duration (seconds) to confirm drowsiness
+        eye_landmarks: List 6 điểm landmark của một mắt
         
     Returns:
-        Dict containing state information
+        EAR value cho một mắt
     """
+    return calculate_ear_single_eye(eye_landmarks)
+
+
 def analyze_ear_state(ear_value: float, 
-                     blink_threshold: float = 0.2,
-                     blink_frames: int = 3,
-                     drowsy_threshold: float = 0.2,
-                     drowsy_duration: float = 1.5) -> Dict[str, Any]:
+                     blink_threshold: float = 0.25,  # Tăng từ 0.22 cho chính xác hơn
+                     blink_frames: int = 2,  # Giảm từ 3 cho responsive hơn
+                     drowsy_threshold: float = 0.22,  # Tăng từ 0.2 giảm false positive
+                     drowsy_duration: float = 1.2) -> Dict[str, Any]:
     """
     Analyze eye state based on EAR value - Returns numerical data only.
     
@@ -196,12 +205,12 @@ def get_ear_statistics() -> Dict[str, Any]:
     }
 
 
-# Hàm tiện ích chính để tính EAR và phân tích
-def calculate_ear(left_eye_landmarks: List[Tuple[int, int, float]], 
-                 right_eye_landmarks: List[Tuple[int, int, float]],
-                 **kwargs) -> Dict[str, Any]:
+# Main utility function cho backward compatibility
+def calculate_ear_full(left_eye_landmarks: List[Tuple[int, int, float]], 
+                      right_eye_landmarks: List[Tuple[int, int, float]],
+                      **kwargs) -> Dict[str, Any]:
     """
-    Hàm chính để tính EAR và phân tích trạng thái.
+    Hàm chính để tính EAR và phân tích trạng thái cả hai mắt.
     
     Args:
         left_eye_landmarks: 6 điểm landmark mắt trái

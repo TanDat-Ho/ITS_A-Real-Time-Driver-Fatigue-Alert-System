@@ -52,13 +52,21 @@ def calculate_mar(mouth_landmarks: List[Tuple[int, int, float]]) -> float:
     # Chuyển đổi về dạng 2D (x, y)
     points = [(p[0], p[1]) for p in mouth_landmarks]
     
-    # Mapping theo công thức MAR
+    # Mapping theo công thức MAR - Kiểm tra tính hợp lệ của landmarks
     # cleft, cright: khóe miệng trái và phải  
     # u1, u2: điểm trên môi trên (trái, phải)
     # l1, l2: điểm tương ứng môi dưới (trái, phải)
     left_corner, top_left, top_right, right_corner, bottom_right, bottom_left = points
     
-    # Tính khoảng cách dọc (chiều cao miệng)
+    # Validate landmark positions (kiểm tra tính hợp lý của vị trí)
+    mouth_width = abs(right_corner[0] - left_corner[0])
+    mouth_height = max(abs(top_left[1] - bottom_left[1]), abs(top_right[1] - bottom_right[1]))
+    
+    # Nếu miệng quá nhỏ hoặc không hợp lý thì trả về 0
+    if mouth_width < 10 or mouth_height < 5:  # pixels
+        return 0.0
+    
+    # Tính khoảng cách dọc (chiều cao miệng) - improved accuracy
     vertical_left = calculate_distance(top_left, bottom_left)    # ||u1 - l1||
     vertical_right = calculate_distance(top_right, bottom_right) # ||u2 - l2||
     
@@ -80,9 +88,9 @@ def calculate_mar(mouth_landmarks: List[Tuple[int, int, float]]) -> float:
 
 
 def analyze_mar_state(mar_value: float, 
-                     yawn_threshold: float = 0.6,
-                     yawn_duration: float = 1.2,
-                     speaking_threshold: float = 0.4) -> Dict[str, Any]:
+                     yawn_threshold: float = 0.65,  # Tăng từ 0.6 giảm false positive
+                     yawn_duration: float = 1.0,  # Giảm từ 1.2 cho responsive hơn
+                     speaking_threshold: float = 0.35) -> Dict[str, Any]:  # Giảm từ 0.4
     """
     Analyze mouth state based on MAR value.
     

@@ -3,6 +3,7 @@
 ## 📋 Giới Thiệu
 
 Hệ thống phát hiện mệt mỏi và buồn ngủ của tài xế theo thời gian thực sử dụng:
+
 - **EAR (Eye Aspect Ratio)**: Phát hiện mắt nhắm/chớp mắt
 - **MAR (Mouth Aspect Ratio)**: Phát hiện ngáp
 - **Head Pose**: Phát hiện cúi đầu/nghiêng đầu
@@ -16,6 +17,15 @@ Hệ thống phát hiện mệt mỏi và buồn ngủ của tài xế theo th�
 - ✅ Hiệu suất cao với kiến trúc đa luồng (multi-threaded)
 - ✅ Ghi log và thống kê chi tiết
 - ✅ Hỗ trợ nhiều chế độ cấu hình (mặc định, nhạy, bảo thủ)
+
+### 🚀 Tính Năng Nâng Cao (Enhanced Mode)
+
+- 🎯 **Input Optimization**: Hardware-adaptive configuration, quality validation
+- 📊 **Performance Monitoring**: Real-time FPS, processing time, quality metrics
+- 🔧 **Smart Configuration**: Auto-detect CPU/memory và optimize settings
+- ✨ **Enhanced Detection**: Improved MediaPipe parameters, input validation
+- 📈 **Quality Assessment**: Frame brightness/contrast/blur analysis
+- 🛠️ **Robust Error Handling**: Better camera management, graceful degradation
 
 ### 🏗️ Kiến Trúc Hệ Thống
 
@@ -58,11 +68,13 @@ Hệ thống phát hiện mệt mỏi và buồn ngủ của tài xế theo th�
 ## 🔧 Yêu Cầu Hệ Thống
 
 ### Phần Cứng
+
 - **Camera/Webcam**: Độ phân giải tối thiểu 640x480, khuyến nghị 720p trở lên
 - **CPU**: Tối thiểu Intel Core i3 hoặc tương đương
 - **RAM**: Tối thiểu 4GB, khuyến nghị 8GB trở lên
 
 ### Phần Mềm
+
 - **Hệ điều hành**: Windows 10/11, macOS 10.15+, hoặc Linux (Ubuntu 20.04+)
 - **Python**: Phiên bản 3.8 đến 3.11 (bắt buộc vì Mediapipe không hỗ trợ các phiên bản khác)
 
@@ -83,6 +95,7 @@ python3 --version
 #### Cài Đặt Python 3.11 (Khuyến nghị)
 
 **Windows:**
+
 1. Tải Python 3.11.8 từ: https://www.python.org/downloads/release/python-3118/
 2. Chọn: `Windows installer (64-bit)` (file tên: python-3.11.8-amd64.exe)
 3. Khi cài đặt, **nhớ tick**: ✅ "Add Python 3.11 to PATH"
@@ -92,11 +105,13 @@ python3 --version
    ```
 
 **macOS:**
+
 ```bash
 brew install python@3.11
 ```
 
 **Linux (Ubuntu/Debian):**
+
 ```bash
 sudo apt update
 sudo apt install python3.11 python3.11-venv python3.11-dev
@@ -112,6 +127,7 @@ cd ITS_A-Real-Time-Driver-Fatigue-Alert-System
 ### Bước 3: Tạo Môi Trường Ảo
 
 **Windows:**
+
 ```bash
 # Với Python 3.11
 py -3.11 -m venv .venv
@@ -124,6 +140,7 @@ source .venv/Scripts/activate
 ```
 
 **macOS/Linux:**
+
 ```bash
 # Tạo môi trường ảo
 python3.11 -m venv .venv
@@ -135,6 +152,7 @@ source .venv/bin/activate
 ✅ Khi thành công, bạn sẽ thấy `(.venv)` xuất hiện ở đầu dòng lệnh.
 
 **Tự động kích hoạt trong VS Code (Khuyến nghị):**
+
 1. Nhấn `Ctrl + Shift + P` (Windows/Linux) hoặc `Cmd + Shift + P` (macOS)
 2. Chọn "Python: Select Interpreter"
 3. Chọn môi trường ảo `.venv` vừa tạo
@@ -169,6 +187,7 @@ python run.py --setup
 ```
 
 Lệnh này sẽ tự động tạo các thư mục:
+
 - `log/` - Lưu log hệ thống
 - `assets/sounds/` - Âm thanh cảnh báo
 - `assets/icon/` - Icon ứng dụng
@@ -176,15 +195,29 @@ Lệnh này sẽ tự động tạo các thư mục:
 
 ## 🚀 Chạy Ứng Dụng
 
-### Chạy Với Cấu Hình Mặc Định
+### 🎯 Launcher Chính (Khuyến Nghị)
 
 ```bash
-python run.py
+# GUI Mode với Enhanced features mặc định
+python launcher.py
+
+# CLI Mode với Enhanced input optimization
+python launcher.py --enhanced
+
+# Test input system trước khi chạy
+python launcher.py --test-input
+
+# Enhanced mode với config khác nhau
+python launcher.py --config sensitive --enhanced
 ```
 
-Hoặc:
+### 📟 Legacy Mode
 
 ```bash
+# Chạy trực tiếp (legacy)
+python run.py
+
+# Với cấu hình mặc định
 python run.py --config default
 ```
 
@@ -197,6 +230,7 @@ python run.py --config sensitive
 ```
 
 Đặc điểm:
+
 - Ngưỡng thời gian ngắn hơn
 - Phát hiện mệt mỏi nhanh hơn
 - Có thể có nhiều false positive hơn
@@ -208,6 +242,7 @@ python run.py --config conservative
 ```
 
 Đặc điểm:
+
 - Ngưỡng thời gian dài hơn
 - Giảm false positive
 - Chỉ cảnh báo khi chắc chắn mệt mỏi
@@ -219,6 +254,7 @@ python run.py --info
 ```
 
 Lệnh này sẽ hiển thị:
+
 - Các ngưỡng EAR, MAR, Head Pose
 - Thời gian duration cho mỗi chế độ
 - Hướng dẫn sử dụng
@@ -227,17 +263,18 @@ Lệnh này sẽ hiển thị:
 
 ### Phím Tắt Trong Ứng Dụng
 
-| Phím | Chức Năng |
-|------|-----------|
-| `q` | Thoát ứng dụng |
-| `r` | Reset thống kê và trạng thái |
-| `s` | Chụp ảnh màn hình hiện tại |
-| `p` | Hiển thị thống kê chi tiết |
-| `Ctrl+C` | Thoát khẩn cấp |
+| Phím     | Chức Năng                    |
+| -------- | ---------------------------- |
+| `q`      | Thoát ứng dụng               |
+| `r`      | Reset thống kê và trạng thái |
+| `s`      | Chụp ảnh màn hình hiện tại   |
+| `p`      | Hiển thị thống kê chi tiết   |
+| `Ctrl+C` | Thoát khẩn cấp               |
 
 ### Giao Diện Hiển Thị
 
 #### Khu Vực Trên Cùng (Bên Trái)
+
 - **Status**: Trạng thái cảnh báo hiện tại
 - **Confidence**: Độ tin cậy (0.0 - 1.0)
 - **EAR**: Giá trị Eye Aspect Ratio và trạng thái
@@ -245,27 +282,30 @@ Lệnh này sẽ hiển thị:
 - **Pitch**: Góc nghiêng đầu và trạng thái
 
 #### Khu Vực Dưới Cùng (Bên Trái)
+
 - **Capture FPS**: Tốc độ đọc camera
 - **Process FPS**: Tốc độ xử lý
 - **Avg Time**: Thời gian xử lý trung bình
 - **Dropped**: Số frame bị bỏ qua
 
 #### Khu Vực Trên Cùng (Bên Phải)
+
 - **Faces**: Số khuôn mặt phát hiện / Tổng số frame
 - **Alerts**: Tổng số cảnh báo
 
 #### Khu Vực Dưới Cùng (Giữa)
+
 - Hiển thị đề xuất hành động dựa trên mức độ cảnh báo
 
 ### Cấp Độ Cảnh Báo
 
-| Cấp Độ | Màu Sắc | Ý Nghĩa | Hành Động |
-|--------|---------|---------|-----------|
-| **NONE** | 🟢 Xanh lá | Tỉnh táo | Tiếp tục lái xe an toàn |
-| **LOW** | 🟡 Vàng | Hơi mệt | Chú ý tập trung |
-| **MEDIUM** | 🟠 Cam | Mệt vừa | Cân nhắc nghỉ ngơi |
-| **HIGH** | 🔴 Đỏ | Mệt nhiều | Cần nghỉ ngơi ngay |
-| **CRITICAL** | 🟣 Tím | Nguy hiểm | **DỪNG XE NGAY** |
+| Cấp Độ       | Màu Sắc    | Ý Nghĩa   | Hành Động               |
+| ------------ | ---------- | --------- | ----------------------- |
+| **NONE**     | 🟢 Xanh lá | Tỉnh táo  | Tiếp tục lái xe an toàn |
+| **LOW**      | 🟡 Vàng    | Hơi mệt   | Chú ý tập trung         |
+| **MEDIUM**   | 🟠 Cam     | Mệt vừa   | Cân nhắc nghỉ ngơi      |
+| **HIGH**     | 🔴 Đỏ      | Mệt nhiều | Cần nghỉ ngơi ngay      |
+| **CRITICAL** | 🟣 Tím     | Nguy hiểm | **DỪNG XE NGAY**        |
 
 ## ⚙️ Cấu Hình Nâng Cao
 
@@ -316,6 +356,7 @@ CAMERA_CONFIG = {
 ### Lỗi: "ModuleNotFoundError: No module named 'mediapipe'"
 
 **Giải pháp:**
+
 ```bash
 pip install mediapipe==0.10.14
 ```
@@ -323,6 +364,7 @@ pip install mediapipe==0.10.14
 ### Lỗi: "Camera not found" hoặc không mở được camera
 
 **Giải pháp:**
+
 1. Kiểm tra camera có hoạt động không
 2. Thử thay đổi chỉ số camera trong `config.py`:
    ```python
@@ -335,6 +377,7 @@ pip install mediapipe==0.10.14
 ### Lỗi: FPS thấp hoặc lag
 
 **Giải pháp:**
+
 1. Giảm độ phân giải camera:
    ```python
    CAMERA_CONFIG = {
@@ -347,6 +390,7 @@ pip install mediapipe==0.10.14
 ### Lỗi: Python version không phù hợp
 
 **Giải pháp:**
+
 ```bash
 # Gỡ cài đặt môi trường cũ
 rm -rf .venv
@@ -364,6 +408,7 @@ pip install -r requirements.txt
 ### Lỗi: ImportError liên quan đến OpenCV
 
 **Giải pháp:**
+
 ```bash
 pip uninstall opencv-python opencv-python-headless
 pip install opencv-python
@@ -372,17 +417,20 @@ pip install opencv-python
 ## 📊 Hiểu Về Các Chỉ Số
 
 ### EAR (Eye Aspect Ratio)
+
 - **Công thức**: `EAR = (||p2-p6|| + ||p3-p5||) / (2 × ||p1-p4||)`
 - **Mắt mở**: EAR ≈ 0.25 - 0.3
 - **Chớp mắt**: EAR < 0.2 trong < 1.5 giây
 - **Buồn ngủ**: EAR < 0.2 trong ≥ 1.5 giây
 
 ### MAR (Mouth Aspect Ratio)
+
 - **Miệng đóng**: MAR ≈ 0.0 - 0.3
 - **Nói chuyện**: MAR ≈ 0.3 - 0.5
 - **Ngáp**: MAR > 0.6 trong ≥ 1.2 giây
 
 ### Head Pose (Góc Đầu)
+
 - **Bình thường**: |pitch| < 12°
 - **Hơi cúi**: 12° < |pitch| < 20°
 - **Buồn ngủ**: |pitch| ≥ 20° trong ≥ 2.0 giây
@@ -403,6 +451,7 @@ python -m pytest tests/ --cov=src --cov-report=html
 ## 📝 Ghi Log
 
 Logs được lưu tại thư mục `log/`:
+
 - `log/fatigue_detection.log` - Log chi tiết hệ thống
 - Snapshots được lưu tại `output/snapshots/`
 
