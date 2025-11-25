@@ -1,5 +1,9 @@
 # 🚗 ITS_A - Hệ Thống Phát Hiện Mệt Mỏi Tài Xế Thời Gian Thực
 
+[![CI Status](https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/workflows/CI%20&%20Build/badge.svg)](https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/actions)
+[![Docker Build](https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/workflows/Docker%20Build%20&%20Publish/badge.svg)](https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/actions)
+[![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-Docker%20Image-blue)](https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/pkgs/container/its_a-real-time-driver-fatigue-alert-system)
+
 ## 📋 Giới Thiệu
 
 Hệ thống phát hiện mệt mỏi và buồn ngủ của tài xế theo thời gian thực sử dụng:
@@ -64,6 +68,14 @@ Hệ thống phát hiện mệt mỏi và buồn ngủ của tài xế theo th�
 ├── 📄 README.md
 └── 📄 run.py                   ← Entry point chính
 ```
+
+### 🚀 Phương Thức Triển Khai
+
+| Phương Thức | Ưu Điểm | Sử Dụng Khi |
+|-------------|---------|-------------|
+| **🐳 Docker** | Dễ triển khai, nhất quán môi trường | Sản xuất, demo |
+| **📦 Local Install** | Hiệu suất tốt nhất, dễ phát triển | Phát triển, testing |
+| **☁️ GitHub Release** | Cài đặt nhanh, cập nhật tự động | Người dùng cuối |
 
 ## 🔧 Yêu Cầu Hệ Thống
 
@@ -136,7 +148,7 @@ py -3.11 -m venv .venv
 .venv\Scripts\activate
 
 # Hoặc với Git Bash
-source .venv/Scripts/activate
+source .venv/Scripts\activate
 ```
 
 **macOS/Linux:**
@@ -192,6 +204,47 @@ Lệnh này sẽ tự động tạo các thư mục:
 - `assets/sounds/` - Âm thanh cảnh báo
 - `assets/icon/` - Icon ứng dụng
 - `output/snapshots/` - Ảnh chụp màn hình
+
+## 🐳 Triển Khai Với Docker (Khuyến Nghị)
+
+### Cài Đặt Nhanh
+
+#### Windows
+```powershell
+# Clone repository
+git clone https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System.git
+cd ITS_A-Real-Time-Driver-Fatigue-Alert-System
+
+# Chạy với GUI
+.\deploy-docker.ps1 -Action build
+
+# Chạy headless (không GUI)
+.\deploy-docker.ps1 -Action headless
+```
+
+#### Linux/macOS
+```bash
+# Clone repository
+git clone https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System.git
+cd ITS_A-Real-Time-Driver-Fatigue-Alert-System
+
+# Chạy với GUI
+./deploy-docker.sh build
+
+# Chạy headless
+./deploy-docker.sh headless
+```
+
+### Sử Dụng Image Có Sẵn
+```bash
+# Pull từ GitHub Container Registry
+docker pull ghcr.io/tandat-ho/its_a-real-time-driver-fatigue-alert-system:latest
+
+# Chạy trực tiếp
+docker run -it --rm --device /dev/video0 ghcr.io/tandat-ho/its_a-real-time-driver-fatigue-alert-system:latest
+```
+
+**📖 Xem chi tiết:** [docs/DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md)
 
 ## 🚀 Chạy Ứng Dụng
 

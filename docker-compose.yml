@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  driver-fatigue-alert:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: driver-fatigue-alert-system
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - PYTHONPATH=/app
+    volumes:
+      # X11 forwarding for GUI (Linux/macOS)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Mount camera device
+      - /dev/video0:/dev/video0
+      # Mount config and output directories
+      - ./config:/app/config
+      - ./log:/app/log
+      - ./output:/app/output
+    devices:
+      # Camera access
+      - /dev/video0:/dev/video0
+    privileged: true
+    network_mode: "host"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import cv2, mediapipe, numpy; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["python", "run.py"]
+
+  # Alternative service for headless mode (no GUI)
+  driver-fatigue-alert-headless:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: driver-fatigue-alert-headless
+    environment:
+      - PYTHONPATH=/app
+      - HEADLESS_MODE=true
+    volumes:
+      - ./config:/app/config
+      - ./log:/app/log
+      - ./output:/app/output
+    devices:
+      - /dev/video0:/dev/video0
+    privileged: true
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    profiles: ["headless"]
+    command: ["python", "run.py", "--headless"]
