@@ -1,49 +1,21 @@
-# Driver Fatigue Alert System - Docker Image
+# Driver Fatigue Alert System - Lightweight Docker Image
 FROM python:3.11-slim
 
-# Cài đặt system dependencies cần thiết cho OpenCV và GUI
+# Install essential system dependencies
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    libgstreamer1.0-0 \
-    libgstreamer-plugins-base1.0-0 \
-    libgtk-3-0 \
-    libfontconfig1 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-xinerama0 \
-    libxcb-xfixes0 \
-    x11-apps \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/* || \
-    apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
     libgomp1 \
     libgstreamer1.0-0 \
     libgstreamer-plugins-base1.0-0 \
-    libgtk-3-0 \
-    libfontconfig1 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-xinerama0 \
-    libxcb-xfixes0 \
-    x11-apps \
     ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libfontconfig1 \
+    x11-apps \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Set working directory
 WORKDIR /app
@@ -74,6 +46,7 @@ RUN pip install -e .
 ENV DISPLAY=:0
 ENV QT_X11_NO_MITSHM=1
 ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
 # Expose port for potential web interface (optional)
 EXPOSE 8080
