@@ -3,7 +3,7 @@ name: Production Release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -24,6 +24,12 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install build twine wheel setuptools
+          
+      - name: Install package dependencies (without optional libs)
+        run: |
+          # Install core dependencies for build
+          pip install opencv-python>=4.8.0 mediapipe==0.10.14 numpy>=1.21.0
+          pip install imutils>=0.5.4 Pillow>=9.0.0 pygame>=2.1.0
           
       - name: Build package
         run: python -m build

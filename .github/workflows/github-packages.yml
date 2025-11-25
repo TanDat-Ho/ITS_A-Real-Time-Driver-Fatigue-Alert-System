@@ -1,13 +1,12 @@
-name: GitHub Package Registry
+name: GitHub Packages Publishing
 
 on:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
-  publish-github:
+  publish-to-github-packages:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,18 +25,28 @@ jobs:
           pip install --upgrade pip
           pip install build twine wheel setuptools
           
-      - name: Install package dependencies (without optional libs)
+      - name: Install package dependencies
         run: |
-          # Install core dependencies for build
           pip install opencv-python>=4.8.0 mediapipe==0.10.14 numpy>=1.21.0
           pip install imutils>=0.5.4 Pillow>=9.0.0 pygame>=2.1.0
           
       - name: Build package
         run: python -m build
         
+      - name: Configure package for GitHub Packages
+        run: |
+          # Create .pypirc for GitHub Packages
+          echo "[distutils]" > ~/.pypirc
+          echo "index-servers = github" >> ~/.pypirc
+          echo "" >> ~/.pypirc
+          echo "[github]" >> ~/.pypirc
+          echo "repository = https://upload.pypi.org/legacy/" >> ~/.pypirc
+          echo "username = __token__" >> ~/.pypirc
+          echo "password = ${{ secrets.GITHUB_TOKEN }}" >> ~/.pypirc
+        
       - name: Publish to GitHub Packages
         run: |
-          python -m twine upload --repository-url https://upload.pypi.org/legacy/ dist/* --verbose
+          python -m twine upload --repository github dist/* --verbose
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

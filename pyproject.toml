@@ -19,8 +19,7 @@ dependencies = [
     "numpy>=1.21.0",
     "imutils>=0.5.4",
     "Pillow>=9.0.0",
-    "pygame>=2.1.0",
-    "my-internal-lib"
+    "pygame>=2.1.0"
 ]
 
 [tool.setuptools]
