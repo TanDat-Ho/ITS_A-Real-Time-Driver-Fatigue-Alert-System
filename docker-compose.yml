@@ -9,12 +9,9 @@ services:
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
-      - PYTHONPATH=/app
-    volumes:
+      - PYTHONPATH=/app    volumes:
       # X11 forwarding for GUI (Linux/macOS)
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Mount camera device
-      - /dev/video0:/dev/video0
       # Mount config and output directories
       - ./config:/app/config
       - ./log:/app/log

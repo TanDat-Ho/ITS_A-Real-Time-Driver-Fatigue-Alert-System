@@ -3,8 +3,10 @@ name: CI & Build
 on:
   push:
     branches: ["main"]
+    tags: ['v*']
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -101,3 +103,51 @@ jobs:
           name: driver-fatigue-alert-${{ github.sha }}
           path: dist/*
           retention-days: 30
+
+  # Quick build test for multiple Python versions (merged from build-only.yml)
+  quick-build-test:
+    name: Quick Build Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || contains(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-pip.txt
+          
+      - name: Test imports
+        run: |
+          python -c "
+          try:
+              import cv2, mediapipe, numpy, imutils, pygame
+              print('✅ All dependencies imported successfully')
+          except ImportError as e:
+              print(f'❌ Import failed: {e}')
+              exit(1)
+          "
+          
+      - name: Build package
+        if: matrix.python-version == '3.11'
+        run: |
+          pip install build wheel setuptools
+          python -m build
+          ls -la dist/
+        
+      - name: Upload artifacts
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-fatigue-alert-build-${{ github.sha }}
+          path: dist/*
+          retention-days: 7
