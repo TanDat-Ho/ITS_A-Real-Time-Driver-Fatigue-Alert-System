@@ -1,0 +1,22 @@
+name: Beta Release
+
+on:
+  push:
+    tags:
+      - 'v*-beta*'
+
+jobs:
+  beta-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: |
+          pip install build twine
+          python -m build
+          python -m twine upload --repository github dist/*
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: dist/*
