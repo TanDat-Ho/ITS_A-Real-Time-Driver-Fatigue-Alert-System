@@ -1,7 +1,7 @@
 """
 optimized_input_config.py
 -----------------
-Optimized configuration for drowsy detection input layer.
+Cleaned optimized configuration for drowsy detection input layer.
 """
 
 import logging

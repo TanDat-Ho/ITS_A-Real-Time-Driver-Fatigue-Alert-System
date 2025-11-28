@@ -1,9 +1,14 @@
 """
 rule_based.py
 -----------------
-Rule-based Fatigue Detection Processor
+Rule-based Fatigue Detection Processor (Refactored)
 
-Central state definition and decision making system integrating EAR + MAR + Head Pose:
+Main detection class integrating EAR + MAR + Head Pose with enhanced quality awareness.
+Components moved to separate modules for better maintainability:
+- detection_enums.py: All enum definitions
+- detection_config.py: Configuration and recommendations
+- state_analyzers.py: State analysis functions
+- detector_factory.py: Factory pattern for creating detectors
 
 Integration of three metrics (EAR + MAR + Head Pose):
 ┌─────────────────┬─────────────────────────┬──────────────────────────┐
@@ -16,65 +21,25 @@ Integration of three metrics (EAR + MAR + Head Pose):
 │ Head nodding    │ |pitch| ≤ 15° for>1.5s  │ Drowsy or lost focus     │
 └─────────────────┴─────────────────────────┴──────────────────────────┘
 
-If 2 out of 3 conditions occur simultaneously, system triggers high alert (sound/display/log).
+If 2 out of 3 conditions occur simultaneously, system triggers high alert.
 """
 
 import time
 import logging
 from typing import Dict, List, Tuple, Optional, Any
-from enum import Enum
 import numpy as np
 
+# Import detection components
+from .detection_enums import AlertLevel, FatigueState, EyeState, MouthState, HeadState
+from .detection_config import RecommendationManager
+from .state_analyzers import StateAnalyzer
+
+# Import detection functions
 from ..detect_rules.ear import calculate_ear_full, reset_ear_state, get_ear_statistics
 from ..detect_rules.mar import calculate_mar_with_analysis, reset_mar_state, get_mar_statistics  
 from ..detect_rules.head_pose import calculate_head_pose_with_analysis, reset_head_pose_state, get_head_pose_statistics
-# Removed optimized imports - using enhanced detection instead
 from ..detect_rules.enhanced_integration import EnhancedDetectionWrapper, get_enhanced_detector
 from ...input_layer.quality_manager import QualityManager, QualityMetrics
-
-
-class AlertLevel(Enum):
-    """Enum defining alert levels."""
-    NONE = "NONE"
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-
-class FatigueState(Enum):
-    """Enum defining fatigue states with driving safety context."""
-    AWAKE = "ALERT_DRIVING"  # Safe to continue driving
-    SLIGHTLY_TIRED = "EARLY_FATIGUE"  # Monitor closely, maintain alertness
-    MODERATELY_TIRED = "CAUTION_NEEDED"  # Plan for rest stop soon
-    SEVERELY_TIRED = "UNSAFE_TO_DRIVE"  # Pull over safely
-    DANGEROUSLY_DROWSY = "IMMEDIATE_STOP_REQUIRED"  # Emergency - stop now
-
-
-class EyeState(Enum):
-    """Enum defining eye states."""
-    OPEN = "OPEN"
-    BLINKING = "BLINKING"
-    CLOSING = "CLOSING"
-    DROWSY = "DROWSY"
-
-
-class MouthState(Enum):
-    """Enum defining mouth states."""
-    CLOSED = "CLOSED"
-    SPEAKING = "SPEAKING"
-    SLIGHTLY_OPEN = "SLIGHTLY_OPEN"
-    WIDE_OPEN = "WIDE_OPEN"
-    YAWNING = "YAWNING"
-
-
-class HeadState(Enum):
-    """Enum defining head pose states."""
-    NORMAL = "NORMAL"
-    SLIGHTLY_TILTED = "SLIGHTLY_TILTED"
-    TILTED = "TILTED"
-    HEAD_DOWN = "HEAD_DOWN"
-    HEAD_DOWN_DROWSY = "HEAD_DOWN_DROWSY"
 
 
 class RuleBasedFatigueDetector:
@@ -515,14 +480,8 @@ class RuleBasedFatigueDetector:
         fatigue_state = self._determine_fatigue_state(alert_level)
         recommendation = self._get_recommendation(alert_level, fatigue_state)
         
-        # Build alert conditions list
-        alert_conditions = []
-        if eye_state == EyeState.DROWSY:
-            alert_conditions.append("😴 Prolonged eye closure (>1.2s) - Microsleep risk")
-        if mouth_state == MouthState.YAWNING:
-            alert_conditions.append("😪 Excessive yawning - Oxygen deficiency sign")
-        if head_state == HeadState.HEAD_DOWN_DROWSY:
-            alert_conditions.append("😵 Head nodding - Loss of muscle control")
+        # Build alert conditions list using StateAnalyzer
+        alert_conditions = StateAnalyzer.build_alert_conditions(eye_state, mouth_state, head_state)
         
         # Calculate confidence based on severity
         confidence = self._calculate_confidence(eye_state, mouth_state, head_state, alert_level)
@@ -617,184 +576,34 @@ class RuleBasedFatigueDetector:
             "session_summary": self.get_detection_summary()
         }
     
+    # State analysis methods now use StateAnalyzer
     def _analyze_eye_state(self, ear_data: Optional[Dict]) -> EyeState:
-        """
-        Determine eye state from EAR numerical data.
-        
-        Args:
-            ear_data: Numerical data from EAR calculation
-            
-        Returns:
-            EyeState: Current eye state
-        """
-        if not ear_data:
-            return EyeState.OPEN
-            
-        if ear_data.get("is_drowsy_duration", False):
-            return EyeState.DROWSY
-        elif ear_data.get("is_below_threshold", False):
-            return EyeState.CLOSING
-        elif ear_data.get("consecutive_frames", 0) > 0:
-            return EyeState.BLINKING
-        else:
-            return EyeState.OPEN
+        """Analyze eye state using StateAnalyzer."""
+        return StateAnalyzer.analyze_eye_state(ear_data)
     
     def _analyze_mouth_state(self, mar_data: Optional[Dict]) -> MouthState:
-        """
-        Determine mouth state from MAR numerical data.
-        
-        Args:
-            mar_data: Numerical data from MAR calculation
-            
-        Returns:
-            MouthState: Current mouth state
-        """
-        if not mar_data:
-            return MouthState.CLOSED
-            
-        if mar_data.get("is_yawn_duration", False):
-            return MouthState.YAWNING
-        elif mar_data.get("is_above_yawn_threshold", False):
-            return MouthState.WIDE_OPEN
-        elif mar_data.get("is_above_speaking_threshold", False):
-            return MouthState.SPEAKING
-        else:
-            return MouthState.CLOSED
+        """Analyze mouth state using StateAnalyzer."""
+        return StateAnalyzer.analyze_mouth_state(mar_data)
     
     def _analyze_head_state(self, head_data: Optional[Dict]) -> HeadState:
-        """
-        Determine head state from head pose numerical data.
-        
-        Args:
-            head_data: Numerical data from head pose calculation
-            
-        Returns:
-            HeadState: Current head state
-        """
-        if not head_data:
-            return HeadState.NORMAL
-            
-        if head_data.get("is_drowsy_duration", False):
-            return HeadState.HEAD_DOWN_DROWSY
-        elif head_data.get("is_above_drowsy_threshold", False):
-            return HeadState.TILTED
-        elif head_data.get("is_above_normal_threshold", False):
-            return HeadState.SLIGHTLY_TILTED
-        else:
-            return HeadState.NORMAL
+        """Analyze head state using StateAnalyzer."""
+        return StateAnalyzer.analyze_head_state(head_data)
 
     def _determine_alert_level(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState) -> AlertLevel:
-        """
-        Determine overall alert level based on individual states.
-        
-        Args:
-            eye_state: Current eye state
-            mouth_state: Current mouth state  
-            head_state: Current head state
-            
-        Returns:
-            AlertLevel: Overall alert level
-        """
-        high_risk_conditions = 0
-        medium_risk_conditions = 0
-        
-        # Count high risk conditions
-        if eye_state == EyeState.DROWSY:
-            high_risk_conditions += 1
-        elif eye_state in [EyeState.CLOSING]:
-            medium_risk_conditions += 1
-            
-        if mouth_state == MouthState.YAWNING:
-            high_risk_conditions += 1
-        elif mouth_state == MouthState.WIDE_OPEN:
-            medium_risk_conditions += 1
-            
-        if head_state == HeadState.HEAD_DOWN_DROWSY:
-            high_risk_conditions += 1
-        elif head_state == HeadState.TILTED:
-            medium_risk_conditions += 1
-        
-        # Determine alert level based on rule combinations
-        if high_risk_conditions >= self.combination_threshold:
-            return AlertLevel.HIGH
-        elif high_risk_conditions >= 1 or medium_risk_conditions >= 2:
-            return AlertLevel.MEDIUM
-        elif medium_risk_conditions >= 1:
-            return AlertLevel.LOW
-        else:
-            return AlertLevel.NONE
+        """Determine alert level using StateAnalyzer."""
+        return StateAnalyzer.determine_alert_level(eye_state, mouth_state, head_state, self.combination_threshold)
     
     def _determine_fatigue_state(self, alert_level: AlertLevel) -> FatigueState:
-        """
-        Map alert level to fatigue state.
-        
-        Args:
-            alert_level: Current alert level
-            
-        Returns:
-            FatigueState: Corresponding fatigue state
-        """
-        mapping = {
-            AlertLevel.NONE: FatigueState.AWAKE,
-            AlertLevel.LOW: FatigueState.SLIGHTLY_TIRED,
-            AlertLevel.MEDIUM: FatigueState.MODERATELY_TIRED,
-            AlertLevel.HIGH: FatigueState.SEVERELY_TIRED,
-            AlertLevel.CRITICAL: FatigueState.DANGEROUSLY_DROWSY
-        }
-        return mapping.get(alert_level, FatigueState.AWAKE)
+        """Determine fatigue state using RecommendationManager."""
+        return RecommendationManager.determine_fatigue_state(alert_level)
     
     def _get_recommendation(self, alert_level: AlertLevel, fatigue_state: FatigueState) -> str:
-        """
-        Get recommendation based on current state.
-        
-        Args:
-            alert_level: Current alert level
-            fatigue_state: Current fatigue state
-            
-        Returns:
-            str: Recommendation message
-        """
-        recommendations = {
-            AlertLevel.NONE: "Driving safely - Stay focused on the road",
-            AlertLevel.LOW: "⚠️ Early fatigue signs - Open windows, adjust posture", 
-            AlertLevel.MEDIUM: "🚨 Moderate fatigue - Find rest stop within 30 minutes",
-            AlertLevel.HIGH: "🛑 DANGER: Pull over safely and rest for 15-20 minutes",
-            AlertLevel.CRITICAL: "🚨 CRITICAL: STOP DRIVING NOW - Find safe place immediately"
-        }
-        return recommendations.get(alert_level, "Continue driving safely")
+        """Get recommendation using RecommendationManager."""
+        return RecommendationManager.get_recommendation(alert_level, fatigue_state)
     
     def _calculate_confidence(self, eye_state: EyeState, mouth_state: MouthState, head_state: HeadState, alert_level: AlertLevel) -> float:
-        """
-        Calculate confidence score based on individual states and alert level.
-        
-        Args:
-            eye_state: Current eye state
-            mouth_state: Current mouth state
-            head_state: Current head state
-            alert_level: Overall alert level
-            
-        Returns:
-            float: Confidence score between 0.0 and 1.0
-        """
-        base_confidence = {
-            AlertLevel.NONE: 0.0,
-            AlertLevel.LOW: 0.3,
-            AlertLevel.MEDIUM: 0.6,
-            AlertLevel.HIGH: 0.8,
-            AlertLevel.CRITICAL: 1.0
-        }
-        
-        confidence = base_confidence.get(alert_level, 0.0)
-        
-        # Boost confidence for severe individual states
-        if eye_state == EyeState.DROWSY:
-            confidence += 0.1
-        if mouth_state == MouthState.YAWNING:
-            confidence += 0.1
-        if head_state == HeadState.HEAD_DOWN_DROWSY:
-            confidence += 0.1
-            
-        return min(1.0, confidence)
+        """Calculate confidence using RecommendationManager."""
+        return RecommendationManager.calculate_confidence(eye_state, mouth_state, head_state, alert_level)
     
     def _get_face_size_factor(self, face_size_category: str) -> float:
         """Get threshold adjustment factor based on face size category"""
@@ -855,156 +664,16 @@ class RuleBasedFatigueDetector:
         return stats
 
 
-class FatigueDetectionConfig:
-    """Lớp cấu hình cho FatigueDetector."""
-    
-    @staticmethod
-    def get_default_config() -> Dict[str, Any]:
-        """Lấy cấu hình mặc định với optimized values."""
-        return {
-            "ear_config": {
-                "blink_threshold": 0.25,  # Optimized từ 0.2
-                "blink_frames": 2,        # Optimized từ 3
-                "drowsy_threshold": 0.22, # Optimized từ 0.2
-                "drowsy_duration": 1.2    # Optimized từ 1.5
-            },
-            "mar_config": {
-                "yawn_threshold": 0.65,    # Optimized từ 0.6
-                "yawn_duration": 1.0,      # Optimized từ 1.2
-                "speaking_threshold": 0.35 # Optimized từ 0.4
-            },
-            "head_pose_config": {
-                "normal_threshold": 12.0,
-                "drowsy_threshold": 18.0,  # Optimized từ 20.0
-                "drowsy_duration": 1.3     # Optimized từ 2.0
-            },
-            "combination_threshold": 2,
-            "critical_duration": 3.0
-        }
-    
-    @staticmethod
-    def get_sensitive_config() -> Dict[str, Any]:
-        """Cấu hình nhạy cảm hơn với optimized values."""
-        config = FatigueDetectionConfig.get_default_config()
-        # Sensitive adjustments based on optimized baseline
-        config["ear_config"]["blink_threshold"] = 0.27     # Tăng sensitivity
-        config["ear_config"]["drowsy_duration"] = 0.8      # Giảm duration
-        config["mar_config"]["yawn_threshold"] = 0.6       # Giảm threshold
-        config["mar_config"]["yawn_duration"] = 0.7        # Giảm duration
-        config["head_pose_config"]["drowsy_threshold"] = 15.0  # Giảm threshold
-        config["head_pose_config"]["drowsy_duration"] = 0.8     # Giảm duration
-        config["combination_threshold"] = 1
-        config["critical_duration"] = 2.0
-        return config
-    
-    @staticmethod
-    def get_conservative_config() -> Dict[str, Any]:
-        """Cấu hình bảo thủ hơn với optimized values."""
-        config = FatigueDetectionConfig.get_default_config()
-        # Conservative adjustments giảm false positives
-        config["ear_config"]["blink_threshold"] = 0.23     # Giảm sensitivity
-        config["ear_config"]["drowsy_duration"] = 2.0      # Tăng duration
-        config["mar_config"]["yawn_threshold"] = 0.7       # Tăng threshold
-        config["mar_config"]["yawn_duration"] = 1.5        # Tăng duration
-        config["head_pose_config"]["drowsy_threshold"] = 22.0  # Tăng threshold
-        config["head_pose_config"]["drowsy_duration"] = 2.0     # Tăng duration
-        config["combination_threshold"] = 3
-        config["critical_duration"] = 5.0
-        return config
-    
-    @staticmethod
-    def create_optimized_detector(lighting: str = "normal", camera_quality: str = "medium") -> 'RuleBasedFatigueDetector':
-        """
-        Tạo RuleBasedFatigueDetector với optimized engine.
-        
-        Args:
-            lighting: Điều kiện ánh sáng (low/normal/bright)
-            camera_quality: Chất lượng camera (low/medium/high)
-            
-        Returns:
-            RuleBasedFatigueDetector với optimized engine
-        """
-        # Optimized integration removed - use enhanced detection instead
-        config = FatigueDetectionConfig.get_default_config()
-        
-        # Create enhanced detector instead of optimized
-        detector = RuleBasedFatigueDetector(
-            use_enhanced_detection=True,
-            use_optimized_engine=False,
-            **config
-        )
-        
-        return detector
-    
-    @staticmethod
-    def create_enhanced_detector(lighting: str = "normal", 
-                               camera_quality: str = "medium",
-                               sensitivity: str = "default") -> 'RuleBasedFatigueDetector':
-        """
-        Tạo RuleBasedFatigueDetector với enhanced detection và quality awareness.
-        
-        Args:
-            lighting: Điều kiện ánh sáng (low/normal/bright)
-            camera_quality: Chất lượng camera (low/medium/high)
-            sensitivity: Độ nhạy (sensitive/default/conservative)
-            
-        Returns:
-            RuleBasedFatigueDetector với enhanced capabilities
-        """
-        # Get base config based on sensitivity
-        if sensitivity == "sensitive":
-            config = FatigueDetectionConfig.get_sensitive_config()
-        elif sensitivity == "conservative":
-            config = FatigueDetectionConfig.get_conservative_config()
-        else:
-            config = FatigueDetectionConfig.get_default_config()
-        
-        # Create enhanced detector
-        detector = RuleBasedFatigueDetector(
-            use_enhanced_detection=True,
-            quality_aware=True,
-            **config
-        )
-        
-        return detector
-    
-    @staticmethod
-    def create_full_featured_detector(lighting: str = "normal", 
-                                    camera_quality: str = "medium",
-                                    sensitivity: str = "default") -> 'RuleBasedFatigueDetector':
-        """
-        Tạo RuleBasedFatigueDetector với tất cả enhanced features.
-        
-        Args:
-            lighting: Điều kiện ánh sáng
-            camera_quality: Chất lượng camera
-            sensitivity: Độ nhạy
-            
-        Returns:
-            Fully-featured RuleBasedFatigueDetector
-        """
-        # Get sensitivity-based config
-        if sensitivity == "sensitive":
-            config = FatigueDetectionConfig.get_sensitive_config()
-        elif sensitivity == "conservative":
-            config = FatigueDetectionConfig.get_conservative_config()
-        else:
-            config = FatigueDetectionConfig.get_default_config()
-        
-        # Create detector with all features enabled
-        detector = RuleBasedFatigueDetector(
-            use_enhanced_detection=True,
-            use_optimized_engine=False,  # Enhanced detection is preferred
-            quality_aware=True,
-            **config
-        )
-        
-        return detector
+# Factory methods moved to detector_factory.py
+# Configuration classes moved to detection_config.py
 
 
 if __name__ == "__main__":
     # Test với dữ liệu mẫu - all detection modes
-    print("=== TESTING ENHANCED RULE-BASED FATIGUE DETECTOR ===")
+    from .detection_config import FatigueDetectionConfig
+    from .detector_factory import DetectorFactory
+    
+    print("=== TESTING REFACTORED RULE-BASED FATIGUE DETECTOR ===")
     
     # Test original detector
     print("\n1. Testing Original Detector:")
@@ -1013,15 +682,15 @@ if __name__ == "__main__":
     
     # Test optimized detector
     print("\n2. Testing Optimized Detector:")
-    optimized_detector = FatigueDetectionConfig.create_optimized_detector("normal", "medium")
+    optimized_detector = DetectorFactory.create_optimized_detector("normal", "medium")
     
     # Test enhanced detector
     print("\n3. Testing Enhanced Detector:")
-    enhanced_detector = FatigueDetectionConfig.create_enhanced_detector("normal", "medium", "default")
+    enhanced_detector = DetectorFactory.create_enhanced_detector("normal", "medium", "default")
     
     # Test full-featured detector
     print("\n4. Testing Full-Featured Detector:")
-    full_detector = FatigueDetectionConfig.create_full_featured_detector("normal", "medium", "default")
+    full_detector = DetectorFactory.create_full_featured_detector("normal", "medium", "default")
     
     # Mock features
     mock_features = {

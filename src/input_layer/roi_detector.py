@@ -1,12 +1,12 @@
 """
 roi_detector.py
 --------------
-ROI (Region of Interest) Detector for optimized face processing
+Cleaned ROI (Region of Interest) Detector for optimized face processing
 """
 
 import cv2
 import numpy as np
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 import logging
 from collections import deque
 

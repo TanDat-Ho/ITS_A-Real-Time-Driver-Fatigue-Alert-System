@@ -1,12 +1,12 @@
 """
 quality_manager.py
 -----------------
-Quality management integration between enhanced input layer and detection rules.
+Cleaned quality management integration between enhanced input layer and detection rules.
 Provides centralized quality assessment and adaptive configuration.
 """
 
-import numpy as np
 import time
+import numpy as np
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 from collections import deque
@@ -81,14 +81,13 @@ class QualityManager:
         
         # Face size and validation metrics
         if face_validation:
-            if hasattr(face_validation, 'metrics'):
-                face_metrics = face_validation.metrics
-                metrics.face_size_category = face_metrics.get("size_category", "optimal")
-                metrics.face_size_confidence = face_validation.confidence
+            if isinstance(face_validation, dict):
+                metrics.face_size_category = face_validation.get("size_category", "optimal")
+                metrics.face_size_confidence = face_validation.get("confidence", 1.0)
             else:
-                face_metrics = face_validation if isinstance(face_validation, dict) else {}
-                metrics.face_size_category = face_metrics.get("size_category", "optimal")
-                metrics.face_size_confidence = face_metrics.get("confidence", 1.0)
+                # Handle ValidationResult objects
+                metrics.face_size_category = getattr(face_validation, 'metrics', {}).get("size_category", "optimal")
+                metrics.face_size_confidence = getattr(face_validation, 'confidence', 1.0)
         
         # ROI quality metrics
         if roi_result:
@@ -97,14 +96,19 @@ class QualityManager:
         
         # Frame quality metrics
         if frame_validation:
-            if hasattr(frame_validation, 'metrics'):
-                frame_metrics = frame_validation.metrics
+            if isinstance(frame_validation, dict) and "metrics" in frame_validation:
+                frame_metrics = frame_validation["metrics"]
+                metrics.frame_brightness = frame_metrics.get("brightness", 128.0)
+                metrics.frame_contrast = frame_metrics.get("contrast", 50.0)
+                metrics.frame_blur_score = frame_metrics.get("blur_score", 100.0)
+                metrics.motion_blur_score = frame_metrics.get("motion_score", 0.0)
             else:
-                frame_metrics = frame_validation if isinstance(frame_validation, dict) else {}
-            metrics.frame_brightness = frame_metrics.get("brightness", 128.0)
-            metrics.frame_contrast = frame_metrics.get("contrast", 50.0)
-            metrics.frame_blur_score = frame_metrics.get("blur_score", 100.0)
-            metrics.motion_blur_score = frame_metrics.get("motion_score", 0.0)
+                # Handle ValidationResult objects
+                frame_metrics = getattr(frame_validation, 'metrics', {})
+                metrics.frame_brightness = frame_metrics.get("brightness", 128.0)
+                metrics.frame_contrast = frame_metrics.get("contrast", 50.0)
+                metrics.frame_blur_score = frame_metrics.get("blur_score", 100.0)
+                metrics.motion_blur_score = frame_metrics.get("motion_score", 0.0)
         
         # Landmark quality metrics
         if landmark_result:
@@ -140,14 +144,14 @@ class QualityManager:
         
         # Apply to each detection method
         for method, config in self.adaptive_thresholds.items():
-            thresholds[method] = {}
-            min_adj, max_adj = config["quality_adjustment_range"]
-            adjustment = max(min_adj, min(max_adj, combined_factor))
-            
+            method_thresholds = {}
             for threshold_name, base_value in config.items():
-                if threshold_name.startswith("base_"):
-                    threshold_key = threshold_name.replace("base_", "")
-                    thresholds[method][threshold_key] = base_value * adjustment
+                if threshold_name == "quality_adjustment_range":
+                    continue
+                min_adj, max_adj = config["quality_adjustment_range"]
+                adjustment = max(min_adj, min(max_adj, combined_factor))
+                method_thresholds[threshold_name] = base_value * adjustment
+            thresholds[method] = method_thresholds
         
         return thresholds
     
@@ -228,7 +232,7 @@ class QualityManager:
     def _calculate_roi_quality(self, roi_result: Dict) -> float:
         """Calculate ROI quality score"""
         if not roi_result.get("used_roi", False):
-            return 0.8  # Default score when no ROI
+            return 1.0  # Full frame processing
         
         roi_coords = roi_result.get("roi_coordinates")
         if not roi_coords:
@@ -240,10 +244,10 @@ class QualityManager:
         area = w * h
         aspect_ratio = w / h if h > 0 else 1.0
         
-        # Prefer reasonable ROI sizes
-        if 40000 <= area <= 160000:  # 200x200 to 400x400
+        # Prefer reasonable ROI sizes (face regions)
+        if 40000 <= area <= 160000:
             size_score = 1.0
-        elif 25000 <= area <= 225000:  # Acceptable range
+        elif 25000 <= area <= 225000:
             size_score = 0.8
         else:
             size_score = 0.6
@@ -259,66 +263,71 @@ class QualityManager:
     def _calculate_roi_stability(self, roi_result: Dict) -> float:
         """Calculate ROI stability over time"""
         if len(self.quality_history) < 3:
-            return 1.0
+            return 1.0  # Not enough history
         
         # Look at ROI coordinates over recent history
         recent_rois = []
         for metrics in list(self.quality_history)[-3:]:
-            # This would need to be stored in metrics, simplified here
-            recent_rois.append(1.0)  # Placeholder
+            if hasattr(metrics, 'roi_quality') and metrics.roi_quality > 0:
+                recent_rois.append(metrics.roi_quality)
         
-        return np.mean(recent_rois)
+        if len(recent_rois) < 2:
+            return 1.0
+        
+        # Calculate stability as inverse of variation
+        stability = 1.0 - min(0.5, np.std(recent_rois))
+        return max(0.5, stability)
     
     def _calculate_landmark_quality(self, landmark_result: Dict) -> float:
         """Calculate landmark detection quality"""
         base_quality = 0.5
         
         if not landmark_result.get("valid", False):
-            return 0.3
+            return base_quality
         
         landmark_count = landmark_result.get("landmark_count", 0)
-        if landmark_count >= 468:  # Full MediaPipe landmarks
-            base_quality = 0.95
-        elif landmark_count >= 200:
-            base_quality = 0.8
-        elif landmark_count >= 100:
-            base_quality = 0.6
-        
-        # Processing time factor
-        processing_time = landmark_result.get("processing_time", 0.05)
-        if processing_time < 0.03:
-            time_factor = 1.1
-        elif processing_time > 0.1:
-            time_factor = 0.9
+        if landmark_count >= 468:
+            count_quality = 1.0
+        elif landmark_count >= 400:
+            count_quality = 0.9
+        elif landmark_count >= 300:
+            count_quality = 0.7
         else:
-            time_factor = 1.0
+            count_quality = 0.4
         
-        # Stability score if available
-        stability_score = landmark_result.get("stability_score", 1.0)
+        # Processing time factor (prefer faster processing)
+        processing_time = landmark_result.get("processing_time", 0.05)
+        if processing_time <= 0.03:
+            time_quality = 1.0
+        elif processing_time <= 0.05:
+            time_quality = 0.9
+        elif processing_time <= 0.1:
+            time_quality = 0.7
+        else:
+            time_quality = 0.5
         
-        return min(1.0, base_quality * time_factor * stability_score)
+        return (count_quality + time_quality) / 2.0
     
     def _calculate_overall_quality(self, metrics: QualityMetrics) -> float:
-        """Calculate overall input quality score"""
-        face_quality = metrics.face_size_confidence
-        roi_quality = metrics.roi_quality * metrics.roi_stability
-        landmark_quality = metrics.landmark_quality
-        frame_quality = self._get_frame_quality_score(metrics)
-        
-        # Weighted average
-        weights = [0.25, 0.25, 0.3, 0.2]  # landmark quality weighted higher
-        qualities = [face_quality, roi_quality, landmark_quality, frame_quality]
-        
-        return np.average(qualities, weights=weights)
+        """Calculate overall quality score"""
+        factors = [
+            metrics.face_size_confidence,
+            metrics.roi_quality,
+            metrics.landmark_quality,
+            self._get_frame_quality_score(metrics)
+        ]
+        return np.mean(factors)
     
     def _get_face_size_adjustment(self, face_size_category: str) -> float:
-        """Get threshold adjustment factor based on face size"""
+        """Get adjustment factor based on face size category"""
         adjustments = {
-            "too_small": 0.85,
-            "acceptable_small": 0.92,
             "optimal": 1.0,
-            "acceptable_large": 1.08,
-            "too_large": 1.15
+            "good": 0.95,
+            "acceptable": 0.9,
+            "small": 0.8,
+            "large": 1.1,
+            "too_small": 0.7,
+            "too_large": 1.2
         }
         return adjustments.get(face_size_category, 1.0)
     
@@ -326,136 +335,154 @@ class QualityManager:
         """Calculate frame quality adjustment factor"""
         brightness_factor = 1.0
         if metrics.frame_brightness < 60 or metrics.frame_brightness > 200:
-            brightness_factor = 0.85
+            brightness_factor = 0.8
         elif metrics.frame_brightness < 80 or metrics.frame_brightness > 180:
-            brightness_factor = 0.95
+            brightness_factor = 0.9
         
-        contrast_factor = 1.0 if metrics.frame_contrast > 30 else 0.8
-        blur_factor = 1.0 if metrics.frame_blur_score > 70 else 0.85
-        motion_factor = 1.0 if metrics.motion_blur_score < 20 else 0.9
+        contrast_factor = 1.0
+        if metrics.frame_contrast < 30:
+            contrast_factor = 0.7
+        elif metrics.frame_contrast < 40:
+            contrast_factor = 0.85
         
-        return brightness_factor * contrast_factor * blur_factor * motion_factor
+        blur_factor = 1.0
+        if metrics.frame_blur_score < 60:
+            blur_factor = 0.6
+        elif metrics.frame_blur_score < 100:
+            blur_factor = 0.8
+        
+        return (brightness_factor + contrast_factor + blur_factor) / 3.0
     
     def _get_frame_quality_score(self, metrics: QualityMetrics) -> float:
-        """Get overall frame quality score (0-1)"""
+        """Get normalized frame quality score"""
         brightness_score = 1.0
-        if 80 <= metrics.frame_brightness <= 180:
+        if 60 <= metrics.frame_brightness <= 200:
             brightness_score = 1.0
-        elif 60 <= metrics.frame_brightness <= 220:
+        elif 40 <= metrics.frame_brightness <= 220:
             brightness_score = 0.8
         else:
-            brightness_score = 0.6
+            brightness_score = 0.5
         
         contrast_score = min(1.0, metrics.frame_contrast / 50.0)
         blur_score = min(1.0, metrics.frame_blur_score / 100.0)
-        motion_score = max(0.3, 1.0 - metrics.motion_blur_score / 50.0)
+        motion_penalty = max(0.5, 1.0 - metrics.motion_blur_score / 50.0)
         
-        return np.mean([brightness_score, contrast_score, blur_score, motion_score])
+        return (brightness_score + contrast_score + blur_score) * motion_penalty / 3.0
     
     def _assess_ear_reliability(self, ear_result: Dict, metrics: QualityMetrics) -> float:
         """Assess EAR detection reliability"""
         base_reliability = 0.7
         
-        # EAR value reasonableness
-        ear_value = ear_result.get("ear_value", 0.25)
-        if 0.1 <= ear_value <= 0.4:
-            value_score = 1.0
+        # Factor in frame quality
+        frame_quality = self._get_frame_quality_score(metrics)
+        reliability = base_reliability * (0.5 + 0.5 * frame_quality)
+        
+        # Factor in landmark quality
+        reliability *= (0.6 + 0.4 * metrics.landmark_quality)
+        
+        # Factor in face size
+        if metrics.face_size_category in ["optimal", "good"]:
+            reliability *= 1.0
+        elif metrics.face_size_category in ["acceptable"]:
+            reliability *= 0.9
         else:
-            value_score = 0.6
+            reliability *= 0.7
         
-        # Quality factors
-        quality_score = (metrics.roi_quality + metrics.landmark_quality) / 2.0
-        
-        return min(1.0, base_reliability * value_score * quality_score)
+        return min(1.0, reliability)
     
     def _assess_mar_reliability(self, mar_result: Dict, metrics: QualityMetrics) -> float:
         """Assess MAR detection reliability"""
-        base_reliability = 0.65
+        base_reliability = 0.8
         
-        # MAR value reasonableness
-        mar_value = mar_result.get("mar_value", 0.3)
-        if 0.1 <= mar_value <= 1.0:
-            value_score = 1.0
-        else:
-            value_score = 0.5
+        # MAR is generally more robust than EAR
+        frame_quality = self._get_frame_quality_score(metrics)
+        reliability = base_reliability * (0.6 + 0.4 * frame_quality)
         
-        # Quality factors
-        quality_score = (metrics.roi_quality + metrics.landmark_quality) / 2.0
+        # Factor in landmark quality
+        reliability *= (0.7 + 0.3 * metrics.landmark_quality)
         
-        return min(1.0, base_reliability * value_score * quality_score)
+        # Factor in motion blur (affects mouth region detection)
+        motion_penalty = max(0.8, 1.0 - metrics.motion_blur_score / 40.0)
+        reliability *= motion_penalty
+        
+        return min(1.0, reliability)
     
     def _assess_head_pose_reliability(self, pose_result: Dict, metrics: QualityMetrics) -> float:
         """Assess head pose detection reliability"""
-        base_reliability = 0.6
+        base_reliability = 0.75
         
-        # Angle reasonableness
-        pitch = abs(pose_result.get("pitch", 0))
-        if pitch < 35:
-            angle_score = 1.0
-        elif pitch < 50:
-            angle_score = 0.7
+        # Head pose is sensitive to landmark quality
+        reliability = base_reliability * metrics.landmark_quality
+        
+        # Factor in ROI stability
+        reliability *= (0.7 + 0.3 * metrics.roi_stability)
+        
+        # Factor in face size
+        if metrics.face_size_category in ["optimal", "good"]:
+            reliability *= 1.0
+        elif metrics.face_size_category == "acceptable":
+            reliability *= 0.85
         else:
-            angle_score = 0.4
+            reliability *= 0.6
         
-        # Quality factors  
-        quality_score = (metrics.landmark_quality + metrics.roi_stability) / 2.0
-        
-        return min(1.0, base_reliability * angle_score * quality_score)
+        return min(1.0, reliability)
     
     def _generate_quality_warnings(self, metrics: QualityMetrics) -> List[str]:
-        """Generate quality-based warnings"""
+        """Generate quality warnings based on metrics"""
         warnings = []
         
-        if metrics.face_size_category in ["too_small", "too_large"]:
-            warnings.append(f"Suboptimal face size: {metrics.face_size_category}")
-        
-        if metrics.roi_quality < 0.7:
-            warnings.append("ROI detection quality is low")
-        
-        if metrics.landmark_quality < 0.6:
-            warnings.append("Landmark detection quality is poor")
-        
         if metrics.frame_brightness < 60:
-            warnings.append("Frame is too dark")
-        elif metrics.frame_brightness > 220:
-            warnings.append("Frame is too bright")
+            warnings.append("Poor lighting conditions detected")
+        elif metrics.frame_brightness > 200:
+            warnings.append("Overexposed frame detected")
         
-        if metrics.frame_contrast < 25:
-            warnings.append("Frame contrast is too low")
+        if metrics.frame_contrast < 30:
+            warnings.append("Low contrast may affect detection")
         
-        if metrics.frame_blur_score < 50:
-            warnings.append("Frame is blurry")
+        if metrics.frame_blur_score < 80:
+            warnings.append("Frame blur may reduce accuracy")
         
-        if metrics.motion_blur_score > 30:
+        if metrics.motion_blur_score > 25:
             warnings.append("Motion blur detected")
+        
+        if metrics.landmark_quality < 0.7:
+            warnings.append("Landmark detection quality is low")
+        
+        if metrics.roi_stability < 0.6:
+            warnings.append("Unstable face tracking")
+        
+        if metrics.face_size_category in ["small", "too_small"]:
+            warnings.append("Face size may be too small for accurate detection")
+        elif metrics.face_size_category in ["large", "too_large"]:
+            warnings.append("Face size may cause processing issues")
         
         return warnings
     
     def _generate_recommendations(self, metrics: QualityMetrics, reliability: Dict) -> List[str]:
-        """Generate recommendations for improving detection quality"""
+        """Generate recommendations based on quality and reliability"""
         recommendations = []
         
-        overall_reliability = reliability["overall_reliability"]
+        if metrics.frame_brightness < 60:
+            recommendations.append("Improve lighting conditions")
+        elif metrics.frame_brightness > 200:
+            recommendations.append("Reduce lighting or adjust camera exposure")
         
-        if overall_reliability < 0.6:
-            recommendations.append("Consider improving lighting conditions")
-            
-        if metrics.face_size_category == "too_small":
-            recommendations.append("Move closer to camera")
-        elif metrics.face_size_category == "too_large":
-            recommendations.append("Move away from camera")
-        
-        if metrics.roi_stability < 0.7:
-            recommendations.append("Keep head position stable")
-        
-        if metrics.frame_blur_score < 60:
-            recommendations.append("Ensure camera is in focus")
+        if metrics.frame_blur_score < 80:
+            recommendations.append("Ensure camera is stable and in focus")
         
         if metrics.motion_blur_score > 25:
-            recommendations.append("Reduce head movement")
+            recommendations.append("Reduce camera or subject movement")
         
-        if not recommendations:
-            recommendations.append("Detection quality is good")
+        if metrics.landmark_quality < 0.7:
+            recommendations.append("Check face visibility and camera angle")
+        
+        if reliability["overall_reliability"] < 0.6:
+            recommendations.append("Consider recalibrating detection thresholds")
+        
+        if metrics.face_size_category in ["small", "too_small"]:
+            recommendations.append("Move closer to camera or adjust camera position")
+        elif metrics.face_size_category in ["large", "too_large"]:
+            recommendations.append("Move further from camera")
         
         return recommendations
     
@@ -464,38 +491,49 @@ class QualityManager:
         self.performance_monitor["frame_count"] += 1
         
         # Update quality trends
+        overall_quality = self._calculate_overall_quality(metrics)
+        self.performance_monitor["quality_trends"]["frame_quality"].append(overall_quality)
         self.performance_monitor["quality_trends"]["roi_quality"].append(metrics.roi_quality)
         self.performance_monitor["quality_trends"]["landmark_quality"].append(metrics.landmark_quality)
-        frame_quality = self._get_frame_quality_score(metrics)
-        self.performance_monitor["quality_trends"]["frame_quality"].append(frame_quality)
         
-        # Update averages
-        if self.performance_monitor["quality_trends"]["roi_quality"]:
-            avg_processing = np.mean([m.processing_time for m in self.quality_history if m.processing_time > 0])
-            self.performance_monitor["avg_processing_time"] = avg_processing
+        # Update average processing time
+        if metrics.processing_time > 0:
+            current_avg = self.performance_monitor["avg_processing_time"]
+            frame_count = self.performance_monitor["frame_count"]
+            self.performance_monitor["avg_processing_time"] = (
+                (current_avg * (frame_count - 1) + metrics.processing_time) / frame_count
+            )
     
     def get_quality_summary(self) -> Dict[str, Any]:
-        """Get quality assessment summary"""
+        """Get comprehensive quality summary"""
         if not self.quality_history:
-            return {"message": "No quality data available"}
+            return {"status": "no_data"}
         
-        recent_metrics = list(self.quality_history)[-5:]
+        latest_metrics = self.quality_history[-1]
         
-        return {
+        # Calculate recent averages
+        recent_metrics = list(self.quality_history)[-5:]  # Last 5 frames
+        
+        summary = {
             "current_quality": {
-                "overall": self._calculate_overall_quality(self.quality_history[-1]) if self.quality_history else 0.0,
-                "face_size": self.quality_history[-1].face_size_category if self.quality_history else "unknown",
-                "roi_quality": self.quality_history[-1].roi_quality if self.quality_history else 0.0,
-                "landmark_quality": self.quality_history[-1].landmark_quality if self.quality_history else 0.0
+                "overall": self._calculate_overall_quality(latest_metrics),
+                "frame": self._get_frame_quality_score(latest_metrics),
+                "landmarks": latest_metrics.landmark_quality,
+                "roi": latest_metrics.roi_quality,
+                "stability": latest_metrics.roi_stability
             },
-            "quality_trends": {
-                "roi_stability": np.std([m.roi_quality for m in recent_metrics]),
-                "landmark_consistency": np.std([m.landmark_quality for m in recent_metrics]),
-                "frame_quality_trend": np.mean([self._get_frame_quality_score(m) for m in recent_metrics])
+            "recent_averages": {
+                "frame_brightness": np.mean([m.frame_brightness for m in recent_metrics]),
+                "frame_contrast": np.mean([m.frame_contrast for m in recent_metrics]),
+                "blur_score": np.mean([m.frame_blur_score for m in recent_metrics]),
+                "landmark_quality": np.mean([m.landmark_quality for m in recent_metrics])
             },
-            "performance": self.performance_monitor,
-            "recent_warnings": self._generate_quality_warnings(self.quality_history[-1]) if self.quality_history else []
+            "performance": self.performance_monitor.copy(),
+            "warnings": self._generate_quality_warnings(latest_metrics),
+            "recommendations": self._generate_recommendations(latest_metrics, {"overall_reliability": self._calculate_overall_quality(latest_metrics)})
         }
+        
+        return summary
 
 # Global quality manager instance
 _quality_manager = None
@@ -544,9 +582,9 @@ if __name__ == "__main__":
     
     # Get adaptive thresholds
     thresholds = manager.get_adaptive_thresholds(metrics)
-    print(f"EAR blink threshold: {thresholds['ear']['blink_threshold']:.3f}")
-    print(f"MAR yawn threshold: {thresholds['mar']['yawn_threshold']:.3f}")
-    print(f"Head pose drowsy threshold: {thresholds['head_pose']['drowsy_threshold']:.1f}")
+    print(f"EAR blink threshold: {thresholds['ear']['base_blink_threshold']:.3f}")
+    print(f"MAR yawn threshold: {thresholds['mar']['base_yawn_threshold']:.3f}")
+    print(f"Head pose drowsy threshold: {thresholds['head_pose']['base_drowsy_threshold']:.1f}")
     
     # Get quality summary
     summary = manager.get_quality_summary()

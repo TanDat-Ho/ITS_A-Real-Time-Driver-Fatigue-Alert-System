@@ -80,7 +80,7 @@ def show_config(config_type: str):
     """Display the chosen configuration (from run.py)"""
     try:
         from src.app.config import get_fatigue_config
-        from src.processing_layer.vision_processor.rule_based import FatigueDetectionConfig
+        from src.processing_layer.vision_processor.detection_config import FatigueDetectionConfig
         
         presets = {
             "default": FatigueDetectionConfig.get_default_config,
@@ -103,7 +103,7 @@ def apply_config(config_type: str):
     """Apply config overrides to global parameters (from run.py)"""
     try:
         from src.app.config import EAR_CONFIG, MAR_CONFIG, HEAD_POSE_CONFIG
-        from src.processing_layer.vision_processor.rule_based import FatigueDetectionConfig
+        from src.processing_layer.vision_processor.detection_config import FatigueDetectionConfig
         
         if config_type == "default":
             return

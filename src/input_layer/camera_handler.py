@@ -1,26 +1,23 @@
 """
 src/input_layer/camera_handler.py
 
-Threaded camera handler for ITS_A project.
+Cleaned and optimized threaded camera handler for ITS_A project.
 
 Responsibilities:
-- Open video source (camera index or file path).
-- Continuously read frames in a separate thread.
-- Resize / color-convert / normalize frames as configured.
-- Provide thread-safe queue for downstream processing_layer.
+- Open video source (camera index or file path)
+- Continuously read frames in a separate thread
+- Resize / color-convert / normalize frames as configured
+- Provide thread-safe queue for downstream processing_layer
 - Expose simple API: start(), stop(), get_frame(), snapshot()
 """
 
 import cv2
-import time
 import threading
 import queue
-import logging
+import time
 import numpy as np
+import logging
 from typing import Optional, Tuple, Dict, Union
-
-# Nếu bạn có app.config, import các tham số mặc định từ đó.
-# from ..app.config import CAMERA_SRC, FRAME_WIDTH, FRAME_HEIGHT, MAX_QUEUE_SIZE, COLOR_FORMAT
 
 # Setup centralized logging
 logger = logging.getLogger(__name__)
@@ -54,25 +51,11 @@ class CameraConstants:
         'BGR': None,  # No conversion needed
         'GRAY': cv2.COLOR_BGR2GRAY
     }
-    
-    # ROI and GPU constants
-    DEFAULT_ROI_SCALE = 1.3  # Expand face ROI by 30%
-    MIN_FACE_SIZE = 100     # Minimum face size for ROI
-    GPU_ACCELERATION = True  # Enable GPU if available
 
 
 class CameraHandler(threading.Thread):
     """
-    Threaded camera grabber.
-
-    Params:
-      src: int (camera index) or str (video file) or None
-      queue_size: max frames to buffer for consumer
-      target_size: (w,h) to which frames are resized. If None, keep original
-      color: "bgr" or "rgb" - color format returned to consumer
-      normalize: if True, returns float32 frame in [0,1], else uint8 [0,255]
-      fps_limit: max read FPS (None -> no limit)
-      auto_reconnect: if True, try to reopen camera on failure
+    Cleaned and optimized threaded camera grabber.
     """
 
     def __init__(self,
@@ -83,10 +66,6 @@ class CameraHandler(threading.Thread):
                  normalize: bool = False,
                  fps_limit: Optional[float] = CameraConstants.DEFAULT_FPS_LIMIT,
                  auto_reconnect: bool = True,
-                 # Enhanced parameters for face detection optimization
-                 exposure: Optional[int] = None,
-                 brightness: Optional[int] = None,
-                 contrast: Optional[int] = None,
                  validate_quality: bool = True):
         super().__init__(daemon=True)
         self.src = src
@@ -99,13 +78,6 @@ class CameraHandler(threading.Thread):
         self._frame_interval = (1.0 / fps_limit) if fps_limit and fps_limit > 0 else None
         self.auto_reconnect = auto_reconnect
         self.validate_quality = validate_quality
-        
-        # Camera properties for optimization
-        self.camera_properties = {
-            'exposure': exposure,
-            'brightness': brightness,
-            'contrast': contrast
-        }
         
         # Validation for target_size
         if target_size:
@@ -143,6 +115,7 @@ class CameraHandler(threading.Thread):
             backends_to_try = CameraConstants.BACKEND_PRIORITY
             backend_names = CameraConstants.BACKEND_NAMES
             cap = None
+            
             for i, backend in enumerate(backends_to_try):
                 try:
                     logger.debug(f"CameraHandler: Trying {backend_names[i]} backend...")
@@ -173,18 +146,17 @@ class CameraHandler(threading.Thread):
                 self.stats["last_open_failed"] = True
                 return False
                 
-            # Optional: set resolution hints (may be ignored by some cameras)
+            # Set resolution hints (may be ignored by some cameras)
             if self.target_size:
                 w, h = self.target_size
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(w))
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(h))
                 
-            # Set some common properties for better performance
+            # Set common properties for better performance
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
             cap.set(cv2.CAP_PROP_FPS, 30)  # Set desired FPS
             
             self._cap = cap
-            # Configure additional camera properties
             self._configure_camera_properties()
             
             # Verify frame quality
@@ -200,6 +172,7 @@ class CameraHandler(threading.Thread):
             self.stats["last_open_failed"] = False
             logger.info(f"CameraHandler: opened source {self.src}")
             return True
+            
         except Exception as e:
             logger.exception("CameraHandler: exception opening capture")
             self.stats["last_open_failed"] = True
@@ -208,113 +181,88 @@ class CameraHandler(threading.Thread):
     def run(self):
         """Main thread loop: read frames and push to queue."""
         self._is_running = True
+        
         # Try open first
         opened = self._open_capture()
         if not opened and not self.auto_reconnect:
-            logger.error("CameraHandler: failed to open capture and auto_reconnect disabled. Exiting thread.")
+            logger.error("CameraHandler: Could not open source and auto_reconnect=False")
             self._is_running = False
             return
 
         last_ts = 0.0
+        frame_count = 0
+        
         while not self._stop_event.is_set():
-            if self._cap is None:
-                # try reopen
+            if not self._cap or not self._cap.isOpened():
                 if self.auto_reconnect:
-                    time.sleep(0.5)
-                    if not self._open_capture():
-                        time.sleep(1.0)
+                    logger.warning("CameraHandler: attempting reconnect...")
+                    time.sleep(1.0)
+                    opened = self._open_capture()
+                    if not opened:
                         continue
                 else:
+                    logger.error("CameraHandler: no active capture and auto_reconnect=False")
                     break
-            ret, frame = self._cap.read()
-            if not ret or frame is None:
-                logger.warning("CameraHandler: read failed (no frame). Will retry.")
-                # release and set None to trigger reconnect
-                try:
-                    self._cap.release()
-                except Exception:
-                    pass
-                self._cap = None
-                time.sleep(0.5)  # Wait a bit longer before retry
-                continue
 
+            # Respect fps_limit
             now = time.time()
-            # FPS limiter (if set)
-            if self._frame_interval is not None:
-                elapsed = now - last_ts
-                if elapsed < self._frame_interval:
-                    time.sleep(self._frame_interval - elapsed)
-                last_ts = time.time()
-
-            # Preprocess: resize if needed
-            if self.target_size is not None:
-                # keep aspect by interpolation? We just resize to target to reduce workload.
-                frame = cv2.resize(frame, self.target_size, interpolation=cv2.INTER_LINEAR)
-
-            # Color conversion
-            if self.color == "rgb":
-                frame_out = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            else:
-                frame_out = frame  # BGR
-
-            # Normalize if required
-            if self.normalize:
-                frame_proc = (frame_out.astype("float32") / 255.0)
-            else:
-                frame_proc = frame_out
-
-            # Validate frame quality if enabled
-            if self.validate_quality and not self._validate_frame_quality(frame_proc):
-                self.stats["frames_poor_quality"] += 1
-                # Add counter for debugging
-                if not hasattr(self, '_dropped_frame_count'):
-                    self._dropped_frame_count = 0
-                self._dropped_frame_count += 1
-                
-                # Log every 10 dropped frames to understand the issue
-                if self._dropped_frame_count % 10 == 1:
-                    logger.warning(f"Dropping frame #{self._dropped_frame_count} due to quality validation")
+            if self._frame_interval and (now - last_ts) < self._frame_interval:
+                time.sleep(0.001)  # Small sleep to avoid busy loop
                 continue
-            
-            # Add success counter for debugging
-            if not hasattr(self, '_successful_frame_count'):
-                self._successful_frame_count = 0
-            self._successful_frame_count += 1
-            
-            # Log successful frame processing occasionally
-            if self._successful_frame_count % 100 == 1:
-                logger.info(f"Successfully processed {self._successful_frame_count} frames")
-            
-            # Put frame into queue (non-blocking with drop policy)
+
             try:
+                ret, raw_frame = self._cap.read()
+                if not ret or raw_frame is None:
+                    logger.warning("CameraHandler: failed to read frame")
+                    if self.auto_reconnect:
+                        time.sleep(0.1)
+                        continue
+                    else:
+                        break
+
+                # Validate frame quality
+                if self.validate_quality and not self._validate_frame_quality(raw_frame):
+                    self.stats["frames_poor_quality"] += 1
+                    continue
+
+                # Process frame
+                processed_frame = self._process_frame(raw_frame)
+                frame_count += 1
+                self.stats["frames_read"] = frame_count
+
+                # Create frame data
                 frame_data = {
                     "ts": now,
-                    "frame": frame_proc,
+                    "frame": processed_frame,
                     "meta": {
-                        "orig_size": (int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                                      int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
-                        "target_size": self.target_size,
-                        "src": self.src,
-                        "validated": self.validate_quality,
-                        "brightness": self.stats.get("avg_brightness", 0),
-                        "contrast": self.stats.get("avg_contrast", 0)
+                        "frame_id": frame_count,
+                        "raw_shape": raw_frame.shape,
+                        "processed_shape": processed_frame.shape,
+                        "color_format": self.color,
+                        "normalized": self.normalize
                     }
                 }
-                
-                self.queue.put_nowait(frame_data)
-                self.stats["frames_read"] += 1
-                
-                # Log first few successful frame puts
-                if self.stats["frames_read"] <= 3:
-                    logger.info(f"Successfully queued frame #{self.stats['frames_read']} - brightness: {self.stats.get('avg_brightness', 0):.1f}")
-            except queue.Full:
-                # Drop oldest or drop this frame? Here we drop newest and count
-                self.stats["frames_dropped_queue_full"] += 1
-                # Option: drop one oldest to make room: self.queue.get_nowait(); self.queue.put_nowait(...)
-                # For deterministic latency, dropping new frames is ok.
-                logger.debug("CameraHandler: queue full, dropping frame")
 
-        # cleanup
+                # Put to queue (non-blocking)
+                try:
+                    self.queue.put_nowait(frame_data)
+                    last_ts = now
+                except queue.Full:
+                    # Drop oldest frame and try again
+                    try:
+                        self.queue.get_nowait()  # Remove oldest
+                        self.queue.put_nowait(frame_data)  # Add new
+                        self.stats["frames_dropped_queue_full"] += 1
+                    except queue.Empty:
+                        pass  # Queue became empty somehow
+
+            except Exception as e:
+                logger.exception(f"CameraHandler: exception in main loop: {e}")
+                if not self.auto_reconnect:
+                    break
+                time.sleep(0.1)
+
+        # Cleanup
         if self._cap:
             try:
                 self._cap.release()
@@ -326,31 +274,25 @@ class CameraHandler(threading.Thread):
     def _configure_camera_properties(self):
         """Configure camera properties for optimal landmark detection"""
         if self._cap is None:
-            return False
+            return
             
         try:
-            # Set properties for better face detection
-            if self.camera_properties['exposure'] is not None:
-                self._cap.set(cv2.CAP_PROP_EXPOSURE, self.camera_properties['exposure'])
+            # Set auto exposure and focus if possible
+            self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Auto exposure on
             
-            if self.camera_properties['brightness'] is not None:
-                self._cap.set(cv2.CAP_PROP_BRIGHTNESS, self.camera_properties['brightness'])
+            # Set brightness, contrast if supported
+            current_brightness = self._cap.get(cv2.CAP_PROP_BRIGHTNESS)
+            current_contrast = self._cap.get(cv2.CAP_PROP_CONTRAST)
+            
+            if current_brightness != -1:  # Property supported
+                self._cap.set(cv2.CAP_PROP_BRIGHTNESS, 128)  # Mid-range
+            if current_contrast != -1:  # Property supported
+                self._cap.set(cv2.CAP_PROP_CONTRAST, 64)   # Mid-range
                 
-            if self.camera_properties['contrast'] is not None:
-                self._cap.set(cv2.CAP_PROP_CONTRAST, self.camera_properties['contrast'])
-            
-            # Auto focus for better face clarity if available
-            try:
-                self._cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
-            except Exception:
-                pass  # Not all cameras support this
-            
-            logger.debug("Camera properties configured for landmark detection")
-            return True
+            logger.debug("Camera properties configured")
             
         except Exception as e:
-            logger.warning(f"Could not set camera properties: {e}")
-            return False
+            logger.debug(f"Could not configure camera properties: {e}")
     
     def _validate_frame_quality(self, frame: np.ndarray) -> bool:
         """Validate frame quality for landmark detection"""
@@ -363,7 +305,7 @@ class CameraHandler(threading.Thread):
         else:
             gray = frame
             
-        # Check brightness (warn but don't reject bright frames)
+        # Check brightness
         brightness = np.mean(gray)
         self.stats["avg_brightness"] = float(brightness)
         
@@ -372,35 +314,38 @@ class CameraHandler(threading.Thread):
             logger.warning(f"Frame too dark (brightness: {brightness:.1f})")
             return False
         
-        # For bright frames, just warn but allow processing
-        if brightness > 250:
-            # Only log once every 50 frames to reduce spam
-            if not hasattr(self, '_bright_frame_counter'):
-                self._bright_frame_counter = 0
-            self._bright_frame_counter += 1
-            if self._bright_frame_counter % 50 == 1:
-                logger.info(f"Bright lighting detected (brightness: {brightness:.1f}) - continuing processing")
-        elif brightness > 220:
-            # Occasional warning for moderately bright frames
-            if not hasattr(self, '_moderate_bright_warned'):
-                logger.info(f"Moderately bright frame (brightness: {brightness:.1f}) - acceptable for processing")
-                self._moderate_bright_warned = True
+        # Check for extremely bright frames
+        if brightness > 220:
+            logger.warning(f"Frame too bright (brightness: {brightness:.1f})")
             
-        # Check contrast (more lenient)
+        # Check contrast
         contrast = np.std(gray)
         self.stats["avg_contrast"] = float(contrast)
         
         # Only reject if contrast is extremely low
         if contrast < 10:
-            logger.warning(f"Very low contrast detected (contrast: {contrast:.1f})")
+            logger.warning(f"Frame too low contrast (contrast: {contrast:.1f})")
             return False
-        elif contrast < 20:
-            # Just warn, don't reject
-            if not hasattr(self, '_low_contrast_warned'):
-                logger.info(f"Low contrast detected (contrast: {contrast:.1f}) - continuing processing")
-                self._low_contrast_warned = True
             
         return True
+
+    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Process raw frame according to configuration"""
+        processed = frame
+        
+        # Resize if needed
+        if self.target_size and frame.shape[:2][::-1] != self.target_size:
+            processed = cv2.resize(processed, self.target_size)
+        
+        # Color conversion
+        if self.color == "rgb" and len(processed.shape) == 3:
+            processed = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
+        
+        # Normalization
+        if self.normalize:
+            processed = processed.astype(np.float32) / 255.0
+            
+        return processed
 
     def start(self):
         """Start thread (override to ensure thread begins)."""
@@ -422,9 +367,7 @@ class CameraHandler(threading.Thread):
     def get_frame(self, block: bool = False, timeout: float = 0.01) -> Optional[Dict]:
         """
         Consumer calls this to get newest frame.
-
         Returns dict: {"ts": float, "frame": np.ndarray, "meta": {...}} or None
-        by default a non-blocking quick poll is used.
         """
         try:
             return self.queue.get(block=block, timeout=timeout)
@@ -437,19 +380,16 @@ class CameraHandler(threading.Thread):
         if frame_data is None:
             return None
             
-        frame = frame_data["frame"]
-        
         # Add quality metrics if validation is enabled
         if self.validate_quality:
-            quality_metrics = self._calculate_frame_quality(frame)
-            frame_data["quality"] = quality_metrics
+            frame_data["quality"] = self._calculate_frame_quality(frame_data["frame"])
         
         return frame_data
     
     def _calculate_frame_quality(self, frame: np.ndarray) -> Dict:
         """Calculate frame quality metrics for processing layer"""
         if frame is None or frame.size == 0:
-            return {"valid": False}
+            return {"valid": False, "reason": "empty_frame"}
             
         # Convert to grayscale for analysis
         if len(frame.shape) == 3:
@@ -483,70 +423,69 @@ class CameraHandler(threading.Thread):
 
     def snapshot(self, path: str) -> bool:
         """Save latest frame (non-blocking). Return True if saved."""
-        item = None
-        # We try to get the most recent frame
         try:
-            while True:
-                item = self.queue.get_nowait()
+            # Try to get the most recent frame
+            frame_data = self.queue.get_nowait()
         except queue.Empty:
-            pass
-
-        if item is None:
-            logger.warning("CameraHandler.snapshot: no frame available to save")
+            logger.warning("CameraHandler.snapshot: no frame available")
             return False
 
-        frame = item["frame"]
+        if frame_data is None:
+            logger.warning("CameraHandler.snapshot: frame_data is None")
+            return False
+
+        frame = frame_data["frame"]
+        
+        # Prepare frame for saving
         if self.normalize:
-            save_frame = (frame * 255.0).astype("uint8")
+            save_frame = (frame * 255).astype(np.uint8)
         else:
             save_frame = frame
 
-        # If in RGB, convert to BGR for imwrite
-        if self.color == "rgb":
+        # Convert RGB to BGR for OpenCV imwrite
+        if self.color == "rgb" and len(save_frame.shape) == 3:
             save_frame = cv2.cvtColor(save_frame, cv2.COLOR_RGB2BGR)
 
-        cv2.imwrite(path, save_frame)
-        logger.info(f"CameraHandler.snapshot: saved to {path}")
-        return True
+        success = cv2.imwrite(path, save_frame)
+        if success:
+            logger.info(f"CameraHandler.snapshot: saved to {path}")
+        else:
+            logger.error(f"CameraHandler.snapshot: failed to save to {path}")
+            
+        return success
 
     def read_frame(self):
         """
         Simple blocking interface for getting latest frame.
-        Compatibility method for non-threaded usage.
         Auto-starts thread if not running.
         """
         if not self._is_running and not self.is_alive():
+            logger.info("CameraHandler: auto-starting for read_frame()")
             self.start()
-            # Give thread a moment to initialize
-            time.sleep(0.1)
+            time.sleep(0.1)  # Give thread time to start
         
         # Get latest frame, dropping old ones
         frame_data = None
         try:
-            # Drain queue to get most recent frame
-            while True:
+            # Clear queue to get latest
+            while not self.queue.empty():
                 frame_data = self.queue.get_nowait()
         except queue.Empty:
-            pass
-        
-        if frame_data is None:
-            # Try once more with blocking
-            frame_data = self.get_frame(block=True, timeout=1.0)
+            logger.warning("CameraHandler.read_frame: no frame available")
         
         return frame_data["frame"] if frame_data else None
 
     def release(self):
         """Release camera and cleanup resources."""
         self.stop()
-        if hasattr(self, 'join'):
-            try:
-                self.join(timeout=2.0)
-            except Exception:
-                pass
+        if hasattr(self, 'join') and self.is_alive():
+            self.join(timeout=2.0)
 
     def health(self) -> Dict:
-        """Return simple health metrics for monitoring."""
+        """Return health metrics for monitoring."""
         return {
             "queue_size": self.queue.qsize(),
+            "is_running": self._is_running,
+            "thread_alive": self.is_alive(),
             **self.stats
         }
