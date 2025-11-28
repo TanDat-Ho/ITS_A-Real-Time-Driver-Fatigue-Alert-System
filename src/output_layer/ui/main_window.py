@@ -218,12 +218,14 @@ class FatigueDetectionGUI:
         
         # Video display area
         self.video_label = tk.Label(video_frame,
-                                   text="📹 CAMERA STARTING...\n\nPlease wait while we initialize detection",
-                                   bg='black',
-                                   fg='white',
-                                   font=('Arial', 14),
-                                   justify=tk.CENTER)
-        self.video_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                                   text="🎥 CAMERA READY\n\n👤 Position your face in the center\n📏 Keep 60-80cm distance from camera\n💡 Ensure good lighting",
+                                   bg='#1a1a1a',
+                                   fg='#00ff00',
+                                   font=('Arial', 12),
+                                   justify=tk.CENTER,
+                                   relief=tk.SUNKEN,
+                                   bd=2)
+        self.video_label.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
     def _create_control_panel(self, parent):
         """Create control panel"""
@@ -293,17 +295,6 @@ class FatigueDetectionGUI:
                             relief=tk.RAISED,
                             bd=2)
         save_btn.pack(fill=tk.X, pady=(5, 0))
-        
-        # Test alert button (for development)
-        test_alert_btn = tk.Button(btn_frame,
-                                  text="🧪 Test Alert",
-                                  command=self._test_alert_counter,
-                                  bg='#ffc107',
-                                  fg='black',
-                                  font=('Arial', 10),
-                                  relief=tk.RAISED,
-                                  bd=2)
-        test_alert_btn.pack(fill=tk.X, pady=(5, 0))
         
         # Back to welcome button
         back_btn = tk.Button(btn_frame,
@@ -377,20 +368,39 @@ class FatigueDetectionGUI:
                                    bd=2)
         alert_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Alert content with scrollable text
+        # Current alert status (large display)
+        self.current_status_frame = tk.Frame(alert_frame, bg='#2c2c2c', relief=tk.SUNKEN, bd=2)
+        self.current_status_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.current_status_label = tk.Label(self.current_status_frame,
+                                           text="🟢 ALERT STATUS: SAFE",
+                                           bg='#2c2c2c',
+                                           fg='#28a745',
+                                           font=('Arial', 11, 'bold'),
+                                           pady=8)
+        self.current_status_label.pack()
+        
+        # Alert history (smaller scrollable area)
+        history_label = tk.Label(alert_frame,
+                                text="📝 Alert History:",
+                                bg='#3a3a3a',
+                                fg='#cccccc',
+                                font=('Arial', 9))
+        history_label.pack(anchor='w', padx=5, pady=(5,0))
+        
         alert_content = tk.Frame(alert_frame, bg='#3a3a3a')
-        alert_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        alert_content.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Add scrollbar first
         scrollbar = tk.Scrollbar(alert_content)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Current alert text display
+        # Alert history text display (smaller)
         self.current_alert_text = tk.Text(alert_content,
-                                         height=4,
-                                         bg='#2c2c2c',
-                                         fg='white',
-                                         font=('Courier', 9),
+                                         height=3,
+                                         bg='#1a1a1a',
+                                         fg='#cccccc',
+                                         font=('Courier', 8),
                                          wrap=tk.WORD,
                                          state=tk.DISABLED,
                                          relief=tk.SUNKEN,
@@ -402,7 +412,7 @@ class FatigueDetectionGUI:
         scrollbar.config(command=self.current_alert_text.yview)
         
         # Initialize with welcome message
-        self._update_alert_message("🟢 System ready - No alerts", "info")
+        self._update_alert_message("System initialized - Ready for monitoring", "info")
             
     def _create_performance_section(self, parent):
         """Create performance monitoring section"""
@@ -419,7 +429,7 @@ class FatigueDetectionGUI:
         perf_content = tk.Frame(perf_frame, bg='#3a3a3a')
         perf_content.pack(fill=tk.X, padx=10, pady=10)
         
-        # FPS display
+        # FPS display with color coding
         fps_frame = tk.Frame(perf_content, bg='#3a3a3a')
         fps_frame.pack(fill=tk.X, pady=2)
         
@@ -438,7 +448,45 @@ class FatigueDetectionGUI:
                                  anchor='e')
         self.fps_label.pack(side=tk.RIGHT)
         
-        # Status display
+        # Add current detection values display
+        values_frame = tk.Frame(perf_content, bg='#3a3a3a')
+        values_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(values_frame,
+                text="👁️ EAR:",
+                bg='#3a3a3a',
+                fg='white',
+                font=('Arial', 9),
+                anchor='w').pack(side=tk.LEFT)
+        
+        self.ear_value_label = tk.Label(values_frame,
+                                       text="--",
+                                       bg='#3a3a3a',
+                                       fg='#17a2b8',
+                                       font=('Arial', 9, 'bold'),
+                                       anchor='e')
+        self.ear_value_label.pack(side=tk.RIGHT)
+        
+        # MAR value display  
+        mar_frame = tk.Frame(perf_content, bg='#3a3a3a')
+        mar_frame.pack(fill=tk.X, pady=1)
+        
+        tk.Label(mar_frame,
+                text="👄 MAR:",
+                bg='#3a3a3a',
+                fg='white',
+                font=('Arial', 9),
+                anchor='w').pack(side=tk.LEFT)
+        
+        self.mar_value_label = tk.Label(mar_frame,
+                                       text="--",
+                                       bg='#3a3a3a',
+                                       fg='#17a2b8',
+                                       font=('Arial', 9, 'bold'),
+                                       anchor='e')
+        self.mar_value_label.pack(side=tk.RIGHT)
+        
+        # Status display with visual indicator
         status_frame = tk.Frame(perf_content, bg='#3a3a3a')
         status_frame.pack(fill=tk.X, pady=2)
         
@@ -456,6 +504,25 @@ class FatigueDetectionGUI:
                                     font=('Arial', 10, 'bold'),
                                     anchor='e')
         self.status_label.pack(side=tk.RIGHT)
+        
+        # Add detection quality indicator
+        quality_frame = tk.Frame(perf_content, bg='#3a3a3a')
+        quality_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(quality_frame,
+                text="🎯 Detection:",
+                bg='#3a3a3a',
+                fg='white',
+                font=('Arial', 10),
+                anchor='w').pack(side=tk.LEFT)
+        
+        self.detection_quality_label = tk.Label(quality_frame,
+                                               text="WAITING",
+                                               bg='#3a3a3a',
+                                               fg='#ffc107',
+                                               font=('Arial', 10, 'bold'),
+                                               anchor='e')
+        self.detection_quality_label.pack(side=tk.RIGHT)
         
     def _back_to_welcome(self):
         """Return to welcome screen"""
@@ -516,11 +583,14 @@ class FatigueDetectionGUI:
             # Update UI
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
-            self.status_label.config(text="RUNNING", fg='#28a745')
-            self.video_label.config(text="🔄 Initializing camera...\nPlease wait")
+            self.status_label.config(text="STARTING", fg='#ffc107')
+            self.detection_quality_label.config(text="INITIALIZING", fg='#ffc107')
+            self.video_label.config(text="🔄 STARTING CAMERA...\n\n📹 Connecting to camera\n⚙️ Loading AI models\n🎯 Preparing detection")
             
-            # Show success message after a short delay
-            self.root.after(1000, lambda: self._update_alert_message(
+            # Update status progressively
+            self.root.after(1000, self._update_startup_progress)
+            self.root.after(2000, lambda: self.status_label.config(text="RUNNING", fg='#28a745'))
+            self.root.after(3000, lambda: self._update_alert_message(
                 "✅ Detection pipeline active - Monitoring for fatigue", "success"))
             
             silent_print("🚀 Detection started successfully")
@@ -553,27 +623,77 @@ class FatigueDetectionGUI:
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.status_label.config(text="ERROR", fg='#dc3545')
+        
+        # Reset detection quality
+        if hasattr(self, 'detection_quality_label'):
+            self.detection_quality_label.config(text="ERROR", fg='#dc3545')
+        
+        # Reset main status
+        if hasattr(self, 'current_status_label'):
+            self.current_status_label.config(text="❌ SYSTEM ERROR", fg='#dc3545')
+            
         self.video_label.configure(
             image="",
-            text="❌ PIPELINE ERROR\n\nCheck console for details\nTry restarting detection"
+            text="❌ DETECTION ERROR\n\n🔧 Check camera connection\n💻 Check console for details\n🔄 Try restarting detection\n📞 Contact support if issue persists"
         )
             
     def _update_display(self):
         """Update display with latest data"""
         while self.running:
             try:
-                # Update video feed
+                # Update video feed and detection data
                 if self.pipeline and hasattr(self.pipeline, 'latest_frame'):
                     frame = self.pipeline.latest_frame
                     if frame is not None:
                         self._update_video_display(frame)
                         self._update_fps()
+                        
+                        # Try to get detection data if available
+                        if hasattr(self.pipeline, 'latest_detection_result'):
+                            detection_result = self.pipeline.latest_detection_result
+                            if detection_result:
+                                self._extract_and_update_detection_values(detection_result)
                 
                 time.sleep(0.1)  # 10 FPS update rate
                 
             except Exception as e:
                 print(f"⚠️ Display update error: {e}")
                 time.sleep(0.5)
+                
+    def _extract_and_update_detection_values(self, detection_result):
+        """Extract and update detection values from pipeline result"""
+        try:
+            if isinstance(detection_result, dict):
+                # Extract EAR value
+                ear_data = detection_result.get('ear')
+                ear_value = None
+                if ear_data and isinstance(ear_data, dict):
+                    ear_value = ear_data.get('ear')
+                    
+                # Extract MAR value
+                mar_data = detection_result.get('mar')
+                mar_value = None 
+                if mar_data and isinstance(mar_data, dict):
+                    mar_value = mar_data.get('mar')
+                    
+                # Extract alert level
+                alert_level_enum = detection_result.get('alert_level')
+                alert_level = "SAFE"
+                if alert_level_enum:
+                    level_str = str(alert_level_enum).split('.')[-1]  # Get enum name
+                    if level_str == 'CRITICAL':
+                        alert_level = "DANGER"
+                    elif level_str == 'HIGH':
+                        alert_level = "WARNING"
+                    elif level_str in ['MEDIUM', 'LOW']:
+                        alert_level = "CAUTION"
+                        
+                # Update display
+                self._update_detection_values(ear_value, mar_value, None, alert_level)
+                
+        except Exception as e:
+            # Silent fail - don't spam console
+            pass
                 
     def _update_video_display(self, frame):
         """Update video display"""
@@ -603,16 +723,82 @@ class FatigueDetectionGUI:
             print(f"⚠️ Video display error: {e}")
             
     def _update_fps(self):
-        """Update FPS counter"""
+        """Update FPS counter with color coding"""
         self.fps_counter += 1
         current_time = time.time()
         
         if current_time - self.fps_start_time >= 1.0:
             self.current_fps = self.fps_counter / (current_time - self.fps_start_time)
-            self.fps_label.config(text=f"{self.current_fps:.1f}")
+            
+            # Color code FPS based on performance
+            if self.current_fps >= 25:
+                fps_color = '#28a745'  # Green - excellent
+            elif self.current_fps >= 15:
+                fps_color = '#ffc107'  # Yellow - acceptable 
+            else:
+                fps_color = '#dc3545'  # Red - poor
+                
+            self.fps_label.config(text=f"{self.current_fps:.1f}", fg=fps_color)
             
             self.fps_counter = 0
             self.fps_start_time = current_time
+            
+    def _update_startup_progress(self):
+        """Update startup progress messages"""
+        if hasattr(self, 'detection_quality_label'):
+            self.detection_quality_label.config(text="LOADING", fg='#17a2b8')
+            self.video_label.config(text="🎥 CAMERA ACTIVE\n\n👤 Please position your face\n📏 Maintain 60-80cm distance\n✅ System is learning...")
+            
+    def _update_detection_values(self, ear_value=None, mar_value=None, head_angle=None, alert_level="SAFE"):
+        """Update real-time detection values display"""
+        if hasattr(self, 'ear_value_label') and ear_value is not None:
+            # Color code EAR value
+            if ear_value < 0.22:
+                ear_color = '#dc3545'  # Red - drowsy
+            elif ear_value < 0.25:
+                ear_color = '#ffc107'  # Yellow - caution
+            else:
+                ear_color = '#28a745'  # Green - alert
+            self.ear_value_label.config(text=f"{ear_value:.3f}", fg=ear_color)
+            
+        if hasattr(self, 'mar_value_label') and mar_value is not None:
+            # Color code MAR value  
+            if mar_value > 0.65:
+                mar_color = '#ffc107'  # Yellow - yawning
+            else:
+                mar_color = '#28a745'  # Green - normal
+            self.mar_value_label.config(text=f"{mar_value:.3f}", fg=mar_color)
+            
+        # Update detection quality status
+        if hasattr(self, 'detection_quality_label'):
+            quality_colors = {
+                'SAFE': '#28a745',
+                'CAUTION': '#ffc107', 
+                'WARNING': '#fd7e14',
+                'DANGER': '#dc3545'
+            }
+            color = quality_colors.get(alert_level, '#17a2b8')
+            self.detection_quality_label.config(text=alert_level, fg=color)
+            
+        # Update main status display
+        if hasattr(self, 'current_status_label'):
+            status_messages = {
+                'SAFE': '🟢 ALERT STATUS: SAFE - DRIVING OK',
+                'CAUTION': '🟡 ALERT STATUS: CAUTION - STAY FOCUSED', 
+                'WARNING': '🟠 ALERT STATUS: WARNING - TAKE BREAK SOON',
+                'DANGER': '🔴 ALERT STATUS: DANGER - PULL OVER NOW'
+            }
+            status_colors = {
+                'SAFE': '#28a745',
+                'CAUTION': '#ffc107',
+                'WARNING': '#fd7e14', 
+                'DANGER': '#dc3545'
+            }
+            
+            message = status_messages.get(alert_level, '🔵 ALERT STATUS: MONITORING')
+            color = status_colors.get(alert_level, '#17a2b8')
+            
+            self.current_status_label.config(text=message, fg=color)
             
     def _update_alert_display(self):
         """Update alert count display"""
@@ -688,17 +874,32 @@ class FatigueDetectionGUI:
             # Update alert counter based on alert level in message
             message_upper = message.upper()
             
+            alert_level = "SAFE"
             if 'CRITICAL' in message_upper:
                 self.alert_counts['CRITICAL'] += 1
+                alert_level = "DANGER"
             elif 'HIGH' in message_upper:
                 self.alert_counts['HIGH'] += 1
+                alert_level = "WARNING"
             elif 'MEDIUM' in message_upper:
                 self.alert_counts['MEDIUM'] += 1
+                alert_level = "CAUTION"
             elif 'LOW' in message_upper:
                 self.alert_counts['LOW'] += 1
+                alert_level = "CAUTION"
                 
-            # Update display
+            # Update display with new alert level
             self._update_alert_display()
+            
+        elif callback_type == 'detection_data' and len(args) >= 1:
+            # Handle real-time detection data
+            detection_data = args[0]
+            ear_value = detection_data.get('ear_value')
+            mar_value = detection_data.get('mar_value')
+            alert_level = detection_data.get('alert_level', 'SAFE')
+            
+            # Update real-time values
+            self._update_detection_values(ear_value, mar_value, None, alert_level)
     
     def _test_alert_counter(self):
         """Test alert counter functionality"""
@@ -789,11 +990,21 @@ class FatigueDetectionGUI:
         self.stop_btn.config(state=tk.DISABLED)
         self.status_label.config(text="STOPPED", fg='#dc3545')
         
-        # Reset video display
+        # Reset video display with better instructions
         self.video_label.configure(
             image="",
-            text="📹 DETECTION STOPPED\n\nPress START to begin again"
+            text="📹 DETECTION STOPPED\n\n🔄 Press START to begin monitoring\n👤 Ensure good lighting and clear face view\n📏 Position camera at eye level"
         )
+        
+        # Reset detection values
+        if hasattr(self, 'ear_value_label'):
+            self.ear_value_label.config(text="--", fg='#cccccc')
+        if hasattr(self, 'mar_value_label'):
+            self.mar_value_label.config(text="--", fg='#cccccc')
+        if hasattr(self, 'detection_quality_label'):
+            self.detection_quality_label.config(text="STOPPED", fg='#dc3545')
+        if hasattr(self, 'current_status_label'):
+            self.current_status_label.config(text="🔴 SYSTEM STOPPED", fg='#dc3545')
         
         # Show stopped message
         self._update_alert_message("⏹️ Detection stopped - System ready for restart", "info")
