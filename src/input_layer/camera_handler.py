@@ -261,12 +261,28 @@ class CameraHandler(threading.Thread):
             # Validate frame quality if enabled
             if self.validate_quality and not self._validate_frame_quality(frame_proc):
                 self.stats["frames_poor_quality"] += 1
-                logger.debug("CameraHandler: dropping frame due to poor quality")
+                # Add counter for debugging
+                if not hasattr(self, '_dropped_frame_count'):
+                    self._dropped_frame_count = 0
+                self._dropped_frame_count += 1
+                
+                # Log every 10 dropped frames to understand the issue
+                if self._dropped_frame_count % 10 == 1:
+                    logger.warning(f"Dropping frame #{self._dropped_frame_count} due to quality validation")
                 continue
+            
+            # Add success counter for debugging
+            if not hasattr(self, '_successful_frame_count'):
+                self._successful_frame_count = 0
+            self._successful_frame_count += 1
+            
+            # Log successful frame processing occasionally
+            if self._successful_frame_count % 100 == 1:
+                logger.info(f"Successfully processed {self._successful_frame_count} frames")
             
             # Put frame into queue (non-blocking with drop policy)
             try:
-                self.queue.put_nowait({
+                frame_data = {
                     "ts": now,
                     "frame": frame_proc,
                     "meta": {
@@ -274,10 +290,18 @@ class CameraHandler(threading.Thread):
                                       int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
                         "target_size": self.target_size,
                         "src": self.src,
-                        "validated": self.validate_quality
+                        "validated": self.validate_quality,
+                        "brightness": self.stats.get("avg_brightness", 0),
+                        "contrast": self.stats.get("avg_contrast", 0)
                     }
-                })
+                }
+                
+                self.queue.put_nowait(frame_data)
                 self.stats["frames_read"] += 1
+                
+                # Log first few successful frame puts
+                if self.stats["frames_read"] <= 3:
+                    logger.info(f"Successfully queued frame #{self.stats['frames_read']} - brightness: {self.stats.get('avg_brightness', 0):.1f}")
             except queue.Full:
                 # Drop oldest or drop this frame? Here we drop newest and count
                 self.stats["frames_dropped_queue_full"] += 1
@@ -334,24 +358,42 @@ class CameraHandler(threading.Thread):
         else:
             gray = frame
             
-        # Check brightness (avoid too dark/bright frames)
+        # Check brightness (warn but don't reject bright frames)
         brightness = np.mean(gray)
         self.stats["avg_brightness"] = float(brightness)
         
-        if brightness < 40:
+        # Only reject extremely dark frames
+        if brightness < 30:
             logger.warning(f"Frame too dark (brightness: {brightness:.1f})")
             return False
-        elif brightness > 210:
-            logger.warning(f"Frame too bright (brightness: {brightness:.1f})")
-            return False
+        
+        # For bright frames, just warn but allow processing
+        if brightness > 250:
+            # Only log once every 50 frames to reduce spam
+            if not hasattr(self, '_bright_frame_counter'):
+                self._bright_frame_counter = 0
+            self._bright_frame_counter += 1
+            if self._bright_frame_counter % 50 == 1:
+                logger.info(f"Bright lighting detected (brightness: {brightness:.1f}) - continuing processing")
+        elif brightness > 220:
+            # Occasional warning for moderately bright frames
+            if not hasattr(self, '_moderate_bright_warned'):
+                logger.info(f"Moderately bright frame (brightness: {brightness:.1f}) - acceptable for processing")
+                self._moderate_bright_warned = True
             
-        # Check contrast
+        # Check contrast (more lenient)
         contrast = np.std(gray)
         self.stats["avg_contrast"] = float(contrast)
         
-        if contrast < 20:
-            logger.warning(f"Low contrast detected (contrast: {contrast:.1f})")
+        # Only reject if contrast is extremely low
+        if contrast < 10:
+            logger.warning(f"Very low contrast detected (contrast: {contrast:.1f})")
             return False
+        elif contrast < 20:
+            # Just warn, don't reject
+            if not hasattr(self, '_low_contrast_warned'):
+                logger.info(f"Low contrast detected (contrast: {contrast:.1f}) - continuing processing")
+                self._low_contrast_warned = True
             
         return True
 
