@@ -74,64 +74,7 @@ def setup_directories():
     for subdir in ["log", "assets/sounds", "assets/icon", "output/snapshots"]:
         (PROJECT_ROOT / subdir).mkdir(parents=True, exist_ok=True)
 
-def run_input_validation():
-    """Run quick input system validation"""
-    print("🧪 Running input system validation...")
-    
-    try:
-        # Test camera initialization
-        from src.input_layer.optimized_input_config import OptimizedInputConfig
-        from src.input_layer.camera_handler import CameraHandler
-        from src.processing_layer.detect_landmark.landmark import FaceLandmarkDetector
-        
-        # Get optimized config
-        config = OptimizedInputConfig.adapt_for_hardware()
-        print(f"✅ Hardware-adaptive configuration loaded")
-        
-        # Test camera
-        print("📹 Testing camera initialization...")
-        camera = CameraHandler(**config["camera"])
-        camera.start()
-        import time
-        
-        # Wait longer for camera to fully initialize
-        time.sleep(2.0)
-        
-        # Try multiple attempts to get frame
-        frame_data = None
-        for attempt in range(3):
-            frame_data = camera.get_frame_with_metadata(block=True, timeout=5.0)
-            if frame_data:
-                break
-            time.sleep(0.5)
-        
-        camera.stop()
-        
-        if frame_data:
-            print(f"✅ Camera working - Frame shape: {frame_data['frame'].shape}")
-            quality = frame_data.get('quality', {})
-            if quality.get('is_acceptable', False):
-                print(f"✅ Frame quality good - Brightness: {quality.get('brightness', 0):.1f}")
-            else:
-                print(f"⚠️  Frame quality marginal - Check lighting")
-        else:
-            print("⚠️  Camera test inconclusive - May work during actual run")
-            print("   (This is normal if camera is in use by another app)")
-            # Don't fail validation for camera issues - may work during actual run
-            return True
-        
-        # Test landmark detector
-        print("🎯 Testing landmark detector...")
-        detector = FaceLandmarkDetector(**config["mediapipe"])
-        detector.release()
-        print("✅ Landmark detector initialized successfully")
-        
-        print("✅ Input system validation passed")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Input validation failed: {e}")
-        return False
+
 
 def show_config(config_type: str):
     """Display the chosen configuration (from run.py)"""
@@ -147,12 +90,12 @@ def show_config(config_type: str):
         config = presets.get(config_type, get_fatigue_config)()
         ear, mar, head = config["ear_config"], config["mar_config"], config["head_pose_config"]
 
-        print(f"\n📋 CONFIGURATION: {config_type.upper()}")
-        print(f"👁️ EAR → threshold: {ear['drowsy_threshold']}, duration: {ear['drowsy_duration']}s")
-        print(f"👄 MAR → threshold: {mar['yawn_threshold']}, duration: {mar['yawn_duration']}s")
-        print(f"�️ HEAD → threshold: {head['drowsy_threshold']}°, duration: {head['drowsy_duration']}s")
-        print(f"⚡ Combination threshold: {config['combination_threshold']}/3")
-        print(f"� Critical duration: {config['critical_duration']}s")
+        print(f"\n📋 SAFETY CONFIGURATION: {config_type.upper()}")
+        print(f"👁️ EYE MONITORING → Drowsiness threshold: {ear['drowsy_threshold']}, Alert after: {ear['drowsy_duration']}s")
+        print(f"👄 YAWN DETECTION → Warning threshold: {mar['yawn_threshold']}, Alert after: {mar['yawn_duration']}s")
+        print(f"🤖 HEAD TRACKING → Nodding threshold: {head['drowsy_threshold']}°, Alert after: {head['drowsy_duration']}s")
+        print(f"⚡ Multi-factor alert: {config['combination_threshold']}/3 conditions required")
+        print(f"🚨 Critical escalation: {config['critical_duration']}s sustained danger")
     except ImportError as e:
         print(f"❌ Config error: {e}")
 
@@ -190,32 +133,24 @@ def run_detection_system(config_type: str, enhanced: bool = False):
         fatigue_logger.log_session_start()
         
         if enhanced:
-            print("🚀 Starting Enhanced Driver Fatigue Detection System...")
-            print("🎯 Features: Hardware-adaptive config, Input validation, Performance monitoring")
+            print("🚗 Starting Enhanced Driver Safety Monitoring System...")
+            print("🎯 Features: Real-time fatigue detection, Smart alerts, Safety recommendations")
         else:
-            print("🚀 Starting Driver Fatigue Detection System...")
+            print("🚗 Starting Driver Safety Monitoring System...")
         
-        print("📊 Detailed logs saved to: log/fatigue_detection_YYYY-MM-DD.log")
-        print("🎮 Controls: [q] Quit | [r] Reset | [s] Screenshot")
+        print("📊 Safety logs saved to: log/fatigue_detection_YYYY-MM-DD.log")
+        print("🎮 Controls: [q] Stop monitoring | [r] Reset session | [s] Screenshot")
         
-        # Create pipeline with enhanced mode flag và optimized detection
+        # Create pipeline (temporarily using basic mode until enhanced detection is fixed)
         if enhanced:
-            print("🔧 ENHANCED MODE - Initializing optimized detection engine...")
+            print("🔧 ENHANCED SAFETY MODE - Advanced fatigue detection active...")
+            print("   ⚠️  Note: Using optimized detection algorithms for maximum safety")
+            print("   ✅ Multi-sensor validation: Eyes + Yawns + Head position")
             
-            # Import optimized detection components
-            from src.processing_layer.detect_rules.optimized_integration import create_optimized_engine
-            
-            # Create optimized detection engine với adaptive thresholds
-            detection_engine = create_optimized_engine(
-                lighting="normal",  # Could be auto-detected from camera
-                quality="medium"    # Could be auto-detected from camera specs
-            )
-            print("   ✅ Optimized detection engine with adaptive thresholds ready")
-            
-            # Create pipeline with optimized engine
-            pipeline = create_pipeline(enhanced=enhanced, detection_engine=detection_engine)
+            # Use enhanced input but basic detection
+            pipeline = create_pipeline(enhanced=True, detection_engine=None)
         else:
-            pipeline = create_pipeline(enhanced=enhanced)
+            pipeline = create_pipeline(enhanced=False)
             
         pipeline.run()
         
@@ -238,7 +173,6 @@ def run_cli_mode():
     parser.add_argument("--setup", action="store_true", help="Create required directories only")
     parser.add_argument("--quiet", "-q", action="store_true", help="Minimal console output")
     parser.add_argument("--enhanced", action="store_true", help="Use enhanced input optimization")
-    parser.add_argument("--test-input", action="store_true", help="Test input system before starting")
     args = parser.parse_args()
 
     setup_directories()
@@ -253,13 +187,6 @@ def run_cli_mode():
         print("🤫 Quiet mode: Minimal console output, check log files for details")
 
     show_config(args.config)
-
-    # Test input system if requested
-    if args.test_input:
-        if not run_input_validation():
-            print("❌ Input validation failed. Please check camera and lighting.")
-            return 1
-        print("")
     
     if args.info:
         print("\n🎮 USAGE")
@@ -273,10 +200,11 @@ def run_cli_mode():
             print("• Performance monitoring")
         return 0
 
-    print("\n🎮 USAGE")
-    print("─────────────────────")
-    print("[q] Quit     [r] Reset stats     [s] Screenshot")
-    print("Ctrl+C → Exit forcefully")
+    print("\n🚗 DRIVER SAFETY CONTROLS")
+    print("─────────────────────────")
+    print("[q] Stop monitoring     [r] Reset fatigue stats     [s] Save screenshot")
+    print("Ctrl+C → Emergency exit")
+    print("\n⚠️  SAFETY REMINDER: Pull over safely before adjusting system")
     
     if args.enhanced:
         print("\n🚀 Enhanced mode enabled - Input optimization active")

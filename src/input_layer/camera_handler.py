@@ -54,6 +54,11 @@ class CameraConstants:
         'BGR': None,  # No conversion needed
         'GRAY': cv2.COLOR_BGR2GRAY
     }
+    
+    # ROI and GPU constants
+    DEFAULT_ROI_SCALE = 1.3  # Expand face ROI by 30%
+    MIN_FACE_SIZE = 100     # Minimum face size for ROI
+    GPU_ACCELERATION = True  # Enable GPU if available
 
 
 class CameraHandler(threading.Thread):

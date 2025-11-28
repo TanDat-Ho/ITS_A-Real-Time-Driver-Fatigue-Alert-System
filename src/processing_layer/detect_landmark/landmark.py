@@ -66,8 +66,15 @@ class FaceLandmarkDetector:
                 "consecutive_failures": 0,
                 "last_landmarks": None,
                 "stability_threshold": 5,
-                "confidence_history": []
+                "confidence_history": [],
+                "landmark_history": [],  # For temporal smoothing
+                "smoothing_factor": 0.7   # Smoothing strength (0-1)
             }
+            
+            # ROI support
+            self.use_roi = True
+            self.roi_detector = None
+            self._initialize_roi_detector()
             
         except Exception as e:
             logger.error(f"Failed to initialize MediaPipe Face Mesh: {e}")
@@ -90,6 +97,21 @@ class FaceLandmarkDetector:
             
         if not (0.0 <= min_tracking_confidence <= 1.0):
             raise ValueError("min_tracking_confidence must be between 0.0-1.0")
+    
+    def _initialize_roi_detector(self):
+        """Initialize ROI detector for optimized processing"""
+        try:
+            # Import here to avoid circular imports
+            import sys
+            from pathlib import Path
+            sys.path.append(str(Path(__file__).parent.parent.parent / "input_layer"))
+            from roi_detector import ROIDetector
+            
+            self.roi_detector = ROIDetector()
+            logger.info("ROI detector initialized for landmark processing")
+        except Exception as e:
+            logger.warning(f"Could not initialize ROI detector: {e}")
+            self.use_roi = False
     
     def _validate_input_frame(self, frame: np.ndarray) -> Dict:
         """Validate input frame quality for landmark detection"""
@@ -282,3 +304,28 @@ class FaceLandmarkDetector:
             self.release()
         except Exception:
             pass  # Ignore all errors during garbage collection
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get current performance and stability statistics"""
+        return {
+            "consecutive_detections": self.tracking_state["consecutive_detections"],
+            "consecutive_failures": self.tracking_state["consecutive_failures"],
+            "stability_score": self._calculate_stability_score(),
+            "landmark_count": len(self.tracking_state.get("last_landmarks", [])),
+            "roi_enabled": self.use_roi and self.roi_detector is not None,
+            "smoothing_factor": self.tracking_state["smoothing_factor"]
+        }
+    
+    def _calculate_stability_score(self) -> float:
+        """Calculate landmark stability score (0-1)"""
+        consecutive = self.tracking_state["consecutive_detections"]
+        failures = self.tracking_state["consecutive_failures"]
+        
+        # Base score from consecutive detections
+        stability = min(1.0, consecutive / 10.0)
+        
+        # Penalty for recent failures
+        if failures > 0:
+            stability *= max(0.3, 1.0 - failures * 0.1)
+            
+        return stability

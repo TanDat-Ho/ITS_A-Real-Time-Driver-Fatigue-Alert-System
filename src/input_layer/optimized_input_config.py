@@ -48,21 +48,38 @@ class OptimizedInputConfig:
     
     @classmethod
     def get_hardware_info(cls) -> Dict[str, Any]:
-        """Get current hardware information"""
+        """Get comprehensive hardware information including GPU"""
+        hardware_info = {
+            "cpu_cores": 4,
+            "memory_gb": 8.0,
+            "memory_available_gb": 4.0,
+            "gpu_available": False,
+            "gpu_count": 0,
+            "gpu_memory_mb": 0
+        }
+        
         try:
             import psutil
-            return {
+            hardware_info.update({
                 "cpu_cores": psutil.cpu_count(logical=False),
                 "memory_gb": round(psutil.virtual_memory().total / (1024**3), 1),
                 "memory_available_gb": round(psutil.virtual_memory().available / (1024**3), 1)
-            }
+            })
         except Exception as e:
-            logger.warning(f"Could not get hardware info: {e}")
-            return {
-                "cpu_cores": 4,
-                "memory_gb": 8.0,
-                "memory_available_gb": 4.0
-            }
+            logger.warning(f"Could not get CPU/memory info: {e}")
+            
+        # GPU detection
+        try:
+            import cv2
+            gpu_count = cv2.cuda.getCudaEnabledDeviceCount()
+            if gpu_count > 0:
+                hardware_info["gpu_available"] = True
+                hardware_info["gpu_count"] = gpu_count
+                logger.info(f"Detected {gpu_count} CUDA-enabled GPU(s)")
+        except Exception as e:
+            logger.debug(f"GPU detection failed: {e}")
+            
+        return hardware_info
     
     @classmethod
     def adapt_for_hardware(cls, hardware_info: Optional[Dict] = None) -> Dict[str, Any]:
@@ -103,5 +120,49 @@ class OptimizedInputConfig:
         elif memory_available >= 8.0:
             config["camera"]["queue_size"] = 10
             logger.info("Applied high memory optimizations")
+            
+        # GPU optimizations
+        gpu_available = hardware_info.get("gpu_available", False)
+        config["gpu"] = {
+            "enabled": gpu_available,
+            "acceleration": gpu_available,
+            "preprocessing": gpu_available
+        }
+        
+        if gpu_available:
+            # Enhanced settings for GPU systems
+            config["camera"]["target_size"] = (640, 480)
+            config["camera"]["fps_limit"] = 30.0
+            config["mediapipe"]["refine_landmarks"] = True
+            logger.info("Applied GPU acceleration optimizations")
         
         return config
+    
+    @classmethod 
+    def get_environment_adaptive_config(cls, lighting_condition: str = "auto") -> Dict[str, Any]:
+        """Get environment-adaptive configuration"""
+        base_config = cls.adapt_for_hardware()
+        
+        # Lighting-based adaptations
+        if lighting_condition == "bright":
+            base_config["camera"]["brightness"] = -10  # Reduce brightness
+            base_config["camera"]["exposure"] = -2     # Reduce exposure
+            base_config["mediapipe"]["min_detection_confidence"] = 0.6
+            logger.info("Applied bright environment optimizations")
+            
+        elif lighting_condition == "dark":
+            base_config["camera"]["brightness"] = 10   # Increase brightness
+            base_config["camera"]["exposure"] = 1      # Increase exposure
+            base_config["mediapipe"]["min_detection_confidence"] = 0.8
+            logger.info("Applied dark environment optimizations")
+            
+        elif lighting_condition == "auto":
+            # Let adaptive systems handle automatically
+            base_config["adaptive"] = {
+                "auto_brightness": True,
+                "auto_exposure": True,
+                "dynamic_thresholds": True
+            }
+            logger.info("Applied automatic environment adaptation")
+            
+        return base_config

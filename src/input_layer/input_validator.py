@@ -15,6 +15,7 @@ import numpy as np
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +33,16 @@ class InputQualityValidator:
     
     def __init__(self):
         self.quality_thresholds = {
-            "min_brightness": 40,
-            "max_brightness": 210, 
-            "min_contrast": 25,
-            "min_blur_score": 80,
+            "min_brightness": 30,      # More lenient for dark environments
+            "max_brightness": 280,     # Higher threshold for bright environments
+            "min_contrast": 20,        # More lenient contrast
+            "min_blur_score": 60,      # More lenient blur threshold
             "min_resolution": (320, 240),
             "max_resolution": (1920, 1080)
         }
+        # Motion blur tracking
+        self.previous_frame = None
+        self.frame_history = deque(maxlen=3)
     
     def validate_frame(self, frame: np.ndarray) -> ValidationResult:
         """Comprehensive frame validation"""
@@ -91,8 +95,15 @@ class InputQualityValidator:
         blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
         metrics["blur_score"] = float(blur_score)
         
+        # Motion blur detection
+        motion_score = self._detect_motion_blur(gray)
+        metrics["motion_score"] = float(motion_score)
+        
         if blur_score < self.quality_thresholds["min_blur_score"]:
-            warnings.append(f"Frame may be blurry: {blur_score:.1f}")
+            if motion_score > 25:  # High motion detected
+                warnings.append(f"Motion blur detected: {blur_score:.1f} (motion: {motion_score:.1f})")
+            else:
+                warnings.append(f"Frame may be blurry: {blur_score:.1f}")
             
         # Calculate overall confidence
         confidence = self._calculate_confidence(metrics, warnings, errors)
@@ -126,17 +137,41 @@ class InputQualityValidator:
         elif contrast < 40:
             confidence *= 0.8
             
-        # Blur confidence
+        # Blur confidence (including motion blur)
         blur_score = metrics.get("blur_score", 0)
-        if blur_score < 100:
-            confidence *= 0.5
-        elif blur_score < 150:
+        motion_score = metrics.get("motion_score", 0)
+        
+        if blur_score < 80:
+            confidence *= 0.6
+        elif blur_score < 120:
             confidence *= 0.8
+            
+        # Motion blur penalty
+        if motion_score > 30:
+            confidence *= 0.7
+        elif motion_score > 20:
+            confidence *= 0.9
             
         # Warning penalty
         confidence *= max(0.3, 1.0 - len(warnings) * 0.1)
         
         return max(0.0, min(1.0, confidence))
+    
+    def _detect_motion_blur(self, gray_frame: np.ndarray) -> float:
+        """Detect motion blur by comparing consecutive frames"""
+        if self.previous_frame is None:
+            self.previous_frame = gray_frame.copy()
+            return 0.0
+            
+        # Calculate frame difference
+        diff = cv2.absdiff(gray_frame, self.previous_frame)
+        motion_score = np.mean(diff)
+        
+        # Update frame history
+        self.frame_history.append(gray_frame.copy())
+        self.previous_frame = gray_frame.copy()
+        
+        return motion_score
 
 class LandmarkQualityValidator:
     """Validates landmark detection quality"""
