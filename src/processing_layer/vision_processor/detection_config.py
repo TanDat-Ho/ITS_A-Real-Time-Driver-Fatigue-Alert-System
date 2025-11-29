@@ -84,13 +84,13 @@ class RecommendationManager:
     
     @staticmethod
     def get_recommendation(alert_level: AlertLevel, fatigue_state: FatigueState) -> str:
-        """Get recommendation based on current state."""
+        """Get enhanced recommendation based on current state."""
         recommendations = {
-            AlertLevel.NONE: "Driving safely - Stay focused on the road",
-            AlertLevel.LOW: "⚠️ Early fatigue signs - Open windows, adjust posture", 
-            AlertLevel.MEDIUM: "🚨 Moderate fatigue - Find rest stop within 30 minutes",
-            AlertLevel.HIGH: "🛑 DANGER: Pull over safely and rest for 15-20 minutes",
-            AlertLevel.CRITICAL: "🚨 CRITICAL: STOP DRIVING NOW - Find safe place immediately"
+            AlertLevel.NONE: "✅ Driving safely - Maintain focus and good posture",
+            AlertLevel.LOW: "⚠️ Early fatigue detected - Open windows, check posture, increase ventilation", 
+            AlertLevel.MEDIUM: "🚨 Moderate fatigue - Plan rest stop within 20-30 minutes, avoid heavy traffic",
+            AlertLevel.HIGH: "🛑 HIGH RISK: Pull over safely NOW and rest for 15-20 minutes minimum",
+            AlertLevel.CRITICAL: "🆘 EMERGENCY: STOP DRIVING IMMEDIATELY - Find safe location, call for help if needed"
         }
         return recommendations.get(alert_level, "Continue driving safely")
     

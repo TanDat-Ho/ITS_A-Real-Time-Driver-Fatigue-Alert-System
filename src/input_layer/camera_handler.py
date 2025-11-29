@@ -83,34 +83,20 @@ class CameraHandler:
                 logger.error(f"Cannot open camera source {self.src}")
                 return False
             
-            # Apply optimal settings for drowsiness detection
+            # Essential settings only for fastest startup
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal latency - most important
+            self.cap.set(cv2.CAP_PROP_FPS, self.fps_limit)
+            
+            # Set resolution if specified
             if self.target_size:
                 w, h = self.target_size
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-                logger.info(f"Camera resolution set to {w}x{h}")
             
-            # Performance-critical settings
-            self.cap.set(cv2.CAP_PROP_FPS, self.fps_limit)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal latency
-            
-            # Optimal quality settings for face detection
-            self.cap.set(cv2.CAP_PROP_BRIGHTNESS, self.brightness)
-            self.cap.set(cv2.CAP_PROP_CONTRAST, self.contrast)
-            self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
-            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, self.auto_exposure)
-            self.cap.set(cv2.CAP_PROP_AUTO_WB, self.auto_wb)
-            
-            # Test frame read to ensure camera is working
-            ret, test_frame = self.cap.read()
-            if ret and test_frame is not None:
-                self.running = True
-                logger.info(f"CameraHandler started successfully - frame shape: {test_frame.shape}")
-                return True
-            else:
-                logger.error("Cannot read test frame from camera")
-                self.cap.release()
-                return False
+            # Skip test frame read - let first real frame validate camera
+            self.running = True
+            logger.info(f"CameraHandler started with fast initialization")
+            return True
                 
         except Exception as e:
             logger.exception(f"Error starting CameraHandler: {e}")

@@ -6,48 +6,48 @@ Configuration of thresholds and parameters for fatigue detection system
 
 # ===== EAR (Eye Aspect Ratio) CONFIGURATION =====
 EAR_CONFIG = {
-    "blink_threshold": 0.25,      # EAR threshold to detect blink
-    "blink_frames": 3,            # Consecutive frames to confirm blink
-    "drowsy_threshold": 0.25,     # EAR threshold to detect drowsiness
-    "drowsy_duration": 1.5        # Duration (seconds) to confirm drowsiness
+    "blink_threshold": 0.25,      # Balanced blink detection
+    "blink_frames": 3,            # Conservative blink confirmation
+    "drowsy_threshold": 0.22,     # More practical drowsiness threshold
+    "drowsy_duration": 2.0        # Longer confirmation to avoid false positives
 }
 
 # ===== MAR (Mouth Aspect Ratio) CONFIGURATION =====
 MAR_CONFIG = {
-    "yawn_threshold": 0.6,        # MAR threshold to detect yawn
-    "yawn_duration": 1.2,         # Duration (seconds) to confirm prolonged yawn
-    "speaking_threshold": 0.4     # MAR threshold to distinguish speaking/silence
+    "yawn_threshold": 0.7,        # Higher threshold to avoid false positives
+    "yawn_duration": 1.5,         # Longer duration for genuine yawn confirmation
+    "speaking_threshold": 0.5     # Clear separation from normal speaking
 }
 
 # ===== HEAD POSE CONFIGURATION =====
 HEAD_POSE_CONFIG = {
-    "normal_threshold": 12.0,     # Normal pitch angle (degrees)
-    "drowsy_threshold": 20.0,     # Drowsy pitch angle (degrees)
-    "drowsy_duration": 2.0        # Duration to maintain for drowsiness confirmation (seconds)
+    "normal_threshold": 15.0,     # Allow normal head movement
+    "drowsy_threshold": 25.0,     # More conservative drowsy detection
+    "drowsy_duration": 2.5        # Longer confirmation for genuine drowsiness
 }
 
 # ===== RULE-BASED CONFIGURATION =====
 RULE_BASED_CONFIG = {
-    "combination_threshold": 2,   # Minimum conditions for high warning
-    "critical_duration": 3.0      # Duration to maintain for CRITICAL state
+    "combination_threshold": 2,   # Require 2 indicators for reliable detection
+    "critical_duration": 4.0      # Conservative escalation to CRITICAL
 }
 
 # ===== CAMERA CONFIGURATION =====
 CAMERA_CONFIG = {
-    "src": 0,                  # Camera index (0 = default camera)
-    "target_size": (640, 480),    # Frame size
+    "src": 0,                     # Camera index (0 = default camera)
+    "target_size": None,          # Let camera use default size for fastest startup
     "fps_limit": 30,              # FPS limit
     "color": "bgr",               # Color format (bgr or rgb)
     "normalize": False,           # Normalize pixel values
-    # Optimal camera properties for drowsiness detection
-    "brightness": 80,             # Optimized brightness for 130-140 range
-    "contrast": 40,              # User recommended contrast
-    "exposure": -8,              # Reduced exposure for optimal brightness
-    "auto_exposure": 0.25,       # Auto exposure enabled
-    "auto_wb": 1,                # Auto white balance
-    "queue_size": 1,             # Minimal buffer for lowest latency
-    "auto_reconnect": True,      # Auto reconnect on failure
-    "validate_quality": False    # Disable for performance
+    # Minimal settings for fastest startup
+    "brightness": None,           # Skip brightness adjustment 
+    "contrast": None,             # Skip contrast adjustment
+    "exposure": None,             # Skip exposure adjustment
+    "auto_exposure": None,        # Skip auto exposure
+    "auto_wb": None,              # Skip white balance
+    "queue_size": 1,              # Minimal buffer for lowest latency
+    "auto_reconnect": True,       # Auto reconnect on failure
+    "validate_quality": False     # Disable for performance
 }
 
 # ===== MEDIAPIPE CONFIGURATION =====

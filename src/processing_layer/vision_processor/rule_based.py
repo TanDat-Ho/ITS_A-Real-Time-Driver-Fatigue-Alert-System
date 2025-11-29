@@ -39,7 +39,15 @@ from ..detect_rules.ear import calculate_ear_full, reset_ear_state, get_ear_stat
 from ..detect_rules.mar import calculate_mar_with_analysis, reset_mar_state, get_mar_statistics  
 from ..detect_rules.head_pose import calculate_head_pose_with_analysis, reset_head_pose_state, get_head_pose_statistics
 from ..detect_rules.enhanced_integration import EnhancedDetectionWrapper, get_enhanced_detector
-from ...input_layer.quality_manager import QualityManager, QualityMetrics
+
+# Optional quality manager - only import if available
+try:
+    from ...input_layer.quality_manager import QualityManager, QualityMetrics
+    QUALITY_MANAGER_AVAILABLE = True
+except ImportError:
+    QualityManager = None
+    QualityMetrics = None
+    QUALITY_MANAGER_AVAILABLE = False
 
 
 class RuleBasedFatigueDetector:
@@ -79,11 +87,23 @@ class RuleBasedFatigueDetector:
         self.quality_aware = quality_aware
         self.detection_engine = detection_engine
         
-        # Initialize enhanced components
-        if use_enhanced_detection:
+        # Initialize enhanced components with adaptive timing
+        try:
+            from .adaptive_timing import AdaptiveTimingManager
+            self.adaptive_manager = AdaptiveTimingManager()
+            self.logger.info("Adaptive timing system initialized")
+        except ImportError:
+            self.adaptive_manager = None
+            self.logger.warning("Adaptive timing system not available")
+        
+        if use_enhanced_detection and QUALITY_MANAGER_AVAILABLE:
             self.enhanced_detector = get_enhanced_detector()
             self.quality_manager = QualityManager()
             self.logger.info("Enhanced detection wrapper initialized")
+        elif use_enhanced_detection:
+            self.enhanced_detector = get_enhanced_detector()
+            self.quality_manager = None
+            self.logger.warning("Enhanced detection enabled but QualityManager not available")
         else:
             self.enhanced_detector = None
             self.quality_manager = None

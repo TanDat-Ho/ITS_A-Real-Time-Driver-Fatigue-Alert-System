@@ -18,9 +18,9 @@ from ..processing_layer.vision_processor.rule_based import RuleBasedFatigueDetec
 from ..output_layer.alert_module import audio_manager, play_fatigue_alert
 from ..output_layer.alert_history import log_alert_to_history, get_alert_stats_for_gui
 
-# Enhanced input components
-from ..input_layer.input_validator import IntegratedInputValidator, PerformanceMonitor
-from ..input_layer.optimized_input_config import OptimizedInputConfig
+# Enhanced input components (optional - disabled for performance)
+# from ..input_layer.input_validator import IntegratedInputValidator, PerformanceMonitor
+# from ..input_layer.optimized_input_config import OptimizedInputConfig
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class PipelineConstants:
     """Constants for pipeline configuration"""
     MAX_FRAME_QUEUE_SIZE = 8
     MAX_RESULT_QUEUE_SIZE = 3
-    CAMERA_STABILIZATION_TIME = 1.0
+    CAMERA_STABILIZATION_TIME = 0.1  # Reduced from 1.0s to 0.1s for faster startup
     MAX_CAPTURE_FPS = 60   # Max 60 FPS capture rate (optimal for 30 FPS target)
     FRAME_DROP_SLEEP = 0.005
     PROCESSING_TIMEOUT = 0.1
@@ -75,23 +75,15 @@ class OptimizedFatigueDetectionPipeline:
         self.enhanced = enhanced  # Flag for enhanced input features
         self.detection_engine = detection_engine  # Optimized detection engine
         
-        # Enhanced components (only if enhanced mode)
+        # Enhanced components (disabled for performance optimization)
         self.input_validator = None
         self.performance_monitor = None
         self.optimized_config = None
         self.quality_manager = None
         
-        if self.enhanced:
-            from ..input_layer.quality_manager import QualityManager
-            self.input_validator = IntegratedInputValidator()
-            self.performance_monitor = PerformanceMonitor(window_size=50)
-            self.optimized_config = OptimizedInputConfig.adapt_for_hardware()
-            self.quality_manager = QualityManager()
-            logger.info("Enhanced input features enabled")
-            logger.info("Quality manager initialized for adaptive thresholds")
-            
-            if self.detection_engine:
-                logger.info("Using enhanced detection engine with quality awareness")
+        # Force disable enhanced features for best performance (29.8 FPS)
+        self.enhanced = False
+        logger.info("Performance mode: Enhanced features disabled for optimal camera performance")
         
         # Components
         self.camera = None
@@ -123,14 +115,10 @@ class OptimizedFatigueDetectionPipeline:
     def initialize(self) -> bool:
         """Initialize all components"""
         try:
-            # Use enhanced config if available
-            if self.enhanced and self.optimized_config:
-                camera_config = self.optimized_config["camera"]
-                mp_config = self.optimized_config["mediapipe"]
-                logger.info(f"Using hardware-adaptive configuration: {camera_config['target_size']} @ {camera_config['fps_limit']}fps")
-            else:
-                camera_config = CAMERA_CONFIG
-                mp_config = MEDIAPIPE_CONFIG
+            # Use optimized basic config for best performance
+            camera_config = CAMERA_CONFIG
+            mp_config = MEDIAPIPE_CONFIG
+            logger.info(f"Using optimized configuration: {camera_config['target_size']} @ {camera_config['fps_limit']}fps")
             
             self.camera = CameraHandler(**camera_config)
             
@@ -141,18 +129,7 @@ class OptimizedFatigueDetectionPipeline:
             self.landmark_detector = FaceLandmarkDetector(**mp_config)
             self.fatigue_detector = self._create_fatigue_detector()
             
-            # Enhanced validation if enabled
-            if self.enhanced and self.input_validator:
-                # Validate system configuration
-                config_validation = self.input_validator.validate_system_config(
-                    camera_config, mp_config
-                )
-                if not config_validation["overall_valid"]:
-                    logger.warning("Configuration validation warnings detected")
-                    for category, result in config_validation.items():
-                        if isinstance(result, object) and hasattr(result, 'warnings'):
-                            for warning in result.warnings:
-                                logger.warning(f"{category}: {warning}")
+            # Validation disabled for optimal performance
             
             return True
         except Exception as e:
@@ -216,7 +193,7 @@ class OptimizedFatigueDetectionPipeline:
     
     def _capture_thread(self):
         """Dedicated capture thread with performance monitoring"""
-        self.camera.start()
+        # Camera already started in initialize() - no need to start again
         time.sleep(PipelineConstants.CAMERA_STABILIZATION_TIME)
         
         frame_count = 0

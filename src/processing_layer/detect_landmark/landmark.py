@@ -99,19 +99,11 @@ class FaceLandmarkDetector:
             raise ValueError("min_tracking_confidence must be between 0.0-1.0")
     
     def _initialize_roi_detector(self):
-        """Initialize ROI detector for optimized processing"""
-        try:
-            # Import here to avoid circular imports
-            import sys
-            from pathlib import Path
-            sys.path.append(str(Path(__file__).parent.parent.parent / "input_layer"))
-            from roi_detector import ROIDetector
-            
-            self.roi_detector = ROIDetector()
-            logger.info("ROI detector initialized for landmark processing")
-        except Exception as e:
-            logger.warning(f"Could not initialize ROI detector: {e}")
-            self.use_roi = False
+        """ROI detector disabled for optimal performance"""
+        # ROI detector removed for faster startup and optimal performance
+        self.roi_detector = None
+        self.use_roi = False
+        logger.info("ROI detector disabled for optimal performance")
     
     def _validate_input_frame(self, frame: np.ndarray) -> Dict:
         """Validate input frame quality for landmark detection"""

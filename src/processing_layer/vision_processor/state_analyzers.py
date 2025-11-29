@@ -117,12 +117,22 @@ class StateAnalyzer:
         elif head_state == HeadState.TILTED:
             medium_risk_conditions += 1
         
-        # Determine alert level based on rule combinations
-        if high_risk_conditions >= combination_threshold:
+        # Balanced alert logic to reduce false positives
+        # CRITICAL: Multiple severe conditions for extended time
+        if high_risk_conditions >= 3:
+            return AlertLevel.CRITICAL
+        # HIGH: Strong evidence required (multiple conditions)
+        elif high_risk_conditions >= combination_threshold and medium_risk_conditions >= 1:
             return AlertLevel.HIGH
-        elif high_risk_conditions >= 1 or medium_risk_conditions >= 2:
+        elif high_risk_conditions >= combination_threshold:
+            return AlertLevel.HIGH
+        # MEDIUM: Moderate evidence required
+        elif high_risk_conditions >= 1 and medium_risk_conditions >= 2:
             return AlertLevel.MEDIUM
-        elif medium_risk_conditions >= 1:
+        elif high_risk_conditions >= 1 or medium_risk_conditions >= 3:
+            return AlertLevel.MEDIUM
+        # LOW: Early warning with conservative threshold
+        elif medium_risk_conditions >= 2:
             return AlertLevel.LOW
         else:
             return AlertLevel.NONE
