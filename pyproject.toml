@@ -26,7 +26,9 @@ dependencies = [
     "numpy>=1.21.0,<2.0.0",
     "imutils>=0.5.4",
     "Pillow>=9.0.0",
-    "pygame>=2.1.0"
+    "pygame>=2.1.0",
+    "pandas>=1.3.0",
+    "openpyxl>=3.0.9"
 ]
 
 # Optional dependencies for different use cases

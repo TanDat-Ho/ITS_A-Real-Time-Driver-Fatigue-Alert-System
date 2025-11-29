@@ -3,13 +3,16 @@ Main GUI application for Driver Fatigue Detection System v2.0
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog, scrolledtext
 import threading
 import cv2
 from PIL import Image, ImageTk
 import numpy as np
 import os
 import time
+import json
+import csv
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from ...app.main import create_pipeline
@@ -91,9 +94,10 @@ class FatigueDetectionGUI:
             
         # Use global root to prevent multiple Tk instances
         self.root = get_root()
-        self.root.title("🚗 Driver Fatigue Detection System v2.0")
-        self.root.geometry("1200x900")
-        self.root.configure(bg='#1a1a2e')
+        self.root.title("🚗 AI Driver Safety Monitor v2.0")
+        self.root.geometry("1400x1000")  # Larger for better UX
+        self.root.configure(bg='#0d1117')  # Modern dark theme
+        self.root.minsize(1200, 800)  # Prevent too small windows
         
         # Configure close behavior
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -205,26 +209,35 @@ class FatigueDetectionGUI:
         subtitle_label.pack()
         
     def _create_video_panel(self, parent):
-        """Create video display panel"""
-        # Video frame
-        video_frame = tk.LabelFrame(parent,
-                                   text="📹 Live Camera Feed",
-                                   bg='#3a3a3a',
-                                   fg='white',
-                                   font=('Arial', 12, 'bold'),
-                                   relief=tk.GROOVE,
-                                   bd=2)
-        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        """Create modern video display panel with enhanced UX"""
+        # Video frame with gradient-like styling
+        video_frame = tk.Frame(parent, bg='#1e1e1e', relief=tk.FLAT, bd=0)
+        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 15))
         
-        # Video display area
-        self.video_label = tk.Label(video_frame,
-                                   text="🎥 CAMERA READY\n\n👤 Position your face in the center\n📏 Keep 60-80cm distance from camera\n💡 Ensure good lighting",
-                                   bg='#1a1a1a',
-                                   fg='#00ff00',
-                                   font=('Arial', 12),
-                                   justify=tk.CENTER,
-                                   relief=tk.SUNKEN,
-                                   bd=2)
+        # Header with status indicator
+        header_frame = tk.Frame(video_frame, bg='#1e1e1e', height=40)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
+        header_frame.pack_propagate(False)
+        
+        # Status indicator
+        self.status_indicator = tk.Label(header_frame,
+                                        text="🟢 CAMERA READY",
+                                        bg='#1e1e1e',
+                                        fg='#00ff88',
+                                        font=('Segoe UI', 11, 'bold'))
+        self.status_indicator.pack(side=tk.LEFT, pady=8)
+        
+        # Video container with rounded corners effect
+        video_container = tk.Frame(video_frame, bg='#0d1117', relief=tk.RAISED, bd=2)
+        video_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Video display area with modern styling
+        self.video_label = tk.Label(video_container,
+                                   text="🎯 AI VISION SYSTEM\n\n✨ Position your face centrally\n📐 Maintain 60-80cm distance\n🔆 Ensure optimal lighting\n\n🚀 Ready for Detection",
+                                   bg='#0d1117',
+                                   fg='#58a6ff',
+                                   font=('Segoe UI', 13),
+                                   justify=tk.CENTER)
         self.video_label.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
     def _create_control_panel(self, parent):
@@ -285,16 +298,66 @@ class FatigueDetectionGUI:
                                  state=tk.DISABLED)
         self.stop_btn.pack(fill=tk.X, pady=5)
         
-        # Secondary buttons
-        save_btn = tk.Button(btn_frame,
-                            text="📸 Save Screenshot",
-                            command=self.save_screenshot,
-                            bg='#007bff',
-                            fg='white',
-                            font=('Arial', 10),
-                            relief=tk.RAISED,
-                            bd=2)
-        save_btn.pack(fill=tk.X, pady=(5, 0))
+        # Data Management Section
+        data_frame = tk.LabelFrame(controls_frame, 
+                                  text="📊 DATA MANAGEMENT",
+                                  bg='#21262d',
+                                  fg='#f0f6fc',
+                                  font=('Segoe UI', 11, 'bold'),
+                                  relief=tk.GROOVE,
+                                  bd=2)
+        data_frame.pack(fill=tk.X, pady=15)
+        
+        data_buttons = tk.Frame(data_frame, bg='#21262d')
+        data_buttons.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Row 1: View and Export
+        row1 = tk.Frame(data_buttons, bg='#21262d')
+        row1.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Button(row1,
+                 text="📋 View Logs",
+                 command=self._show_log_viewer,
+                 bg='#0969da',
+                 fg='white',
+                 font=('Segoe UI', 9),
+                 relief=tk.FLAT,
+                 padx=15,
+                 pady=6).pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
+        
+        tk.Button(row1,
+                 text="📊 Báo cáo Excel",
+                 command=self._export_session_data,
+                 bg='#238636',
+                 fg='white',
+                 font=('Segoe UI', 9),
+                 relief=tk.FLAT,
+                 padx=15,
+                 pady=6).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Row 2: Clear and Screenshot
+        row2 = tk.Frame(data_buttons, bg='#21262d')
+        row2.pack(fill=tk.X)
+        
+        tk.Button(row2,
+                 text="🗑️ Clear Session",
+                 command=self._clear_session_data,
+                 bg='#da3633',
+                 fg='white',
+                 font=('Segoe UI', 9),
+                 relief=tk.FLAT,
+                 padx=15,
+                 pady=6).pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
+        
+        tk.Button(row2,
+                 text="📸 Screenshot",
+                 command=self.save_screenshot,
+                 bg='#8b5cf6',
+                 fg='white',
+                 font=('Segoe UI', 9),
+                 relief=tk.FLAT,
+                 padx=15,
+                 pady=6).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
         # Back to welcome button
         back_btn = tk.Button(btn_frame,
@@ -308,15 +371,19 @@ class FatigueDetectionGUI:
         back_btn.pack(fill=tk.X, pady=(5, 0))
         
     def _create_statistics_section(self, parent):
-        """Create statistics section"""
-        stats_frame = tk.LabelFrame(parent,
-                                   text="📊 Alert Statistics",
-                                   bg='#3a3a3a',
-                                   fg='white',
-                                   font=('Arial', 12, 'bold'),
-                                   relief=tk.GROOVE,
-                                   bd=2)
-        stats_frame.pack(fill=tk.X, padx=10, pady=10)
+        """Create modern statistics section with visual metrics"""
+        stats_frame = tk.Frame(parent, bg='#21262d', relief=tk.FLAT, bd=0)
+        stats_frame.pack(fill=tk.X, padx=10, pady=15)
+        
+        # Header with icon
+        header_frame = tk.Frame(stats_frame, bg='#21262d')
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(header_frame,
+                text="📊 ALERT ANALYTICS",
+                bg='#21262d',
+                fg='#f0f6fc',
+                font=('Segoe UI', 12, 'bold')).pack(side=tk.LEFT)
         
         # Stats content
         stats_content = tk.Frame(stats_frame, bg='#3a3a3a')
@@ -358,15 +425,19 @@ class FatigueDetectionGUI:
             self.alert_labels[level] = count_label
     
     def _create_alert_messages_section(self, parent):
-        """Create alert messages display section"""
-        alert_frame = tk.LabelFrame(parent,
-                                   text="📢 Current Alerts",
-                                   bg='#3a3a3a',
-                                   fg='white',
-                                   font=('Arial', 12, 'bold'),
-                                   relief=tk.GROOVE,
-                                   bd=2)
-        alert_frame.pack(fill=tk.X, padx=10, pady=10)
+        """Create modern alert display with dynamic status indicators"""
+        alert_frame = tk.Frame(parent, bg='#161b22', relief=tk.FLAT, bd=0)
+        alert_frame.pack(fill=tk.X, padx=10, pady=15)
+        
+        # Dynamic status header
+        header_frame = tk.Frame(alert_frame, bg='#161b22')
+        header_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        tk.Label(header_frame,
+                text="🛡️ SAFETY STATUS",
+                bg='#161b22',
+                fg='#f0f6fc',
+                font=('Segoe UI', 12, 'bold')).pack(side=tk.LEFT)
         
         # Current alert status (large display)
         self.current_status_frame = tk.Frame(alert_frame, bg='#2c2c2c', relief=tk.SUNKEN, bd=2)
@@ -415,53 +486,66 @@ class FatigueDetectionGUI:
         self._update_alert_message("System initialized - Ready for monitoring", "info")
             
     def _create_performance_section(self, parent):
-        """Create performance monitoring section"""
-        perf_frame = tk.LabelFrame(parent,
-                                  text="⚡ Performance",
-                                  bg='#3a3a3a',
-                                  fg='white',
-                                  font=('Arial', 12, 'bold'),
-                                  relief=tk.GROOVE,
-                                  bd=2)
-        perf_frame.pack(fill=tk.X, padx=10, pady=10)
+        """Create modern performance monitoring with visual indicators"""
+        perf_frame = tk.Frame(parent, bg='#1c2128', relief=tk.FLAT, bd=0)
+        perf_frame.pack(fill=tk.X, padx=10, pady=15)
         
-        # Performance content
-        perf_content = tk.Frame(perf_frame, bg='#3a3a3a')
-        perf_content.pack(fill=tk.X, padx=10, pady=10)
+        # Header with performance icon
+        header_frame = tk.Frame(perf_frame, bg='#1c2128')
+        header_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # FPS display with color coding
-        fps_frame = tk.Frame(perf_content, bg='#3a3a3a')
-        fps_frame.pack(fill=tk.X, pady=2)
+        tk.Label(header_frame,
+                text="⚡ SYSTEM PERFORMANCE",
+                bg='#1c2128',
+                fg='#f0f6fc',
+                font=('Segoe UI', 12, 'bold')).pack(side=tk.LEFT)
         
-        tk.Label(fps_frame,
-                text="📈 FPS:",
-                bg='#3a3a3a',
+        # Performance content with modern styling
+        perf_content = tk.Frame(perf_frame, bg='#1c2128')
+        perf_content.pack(fill=tk.X, padx=15, pady=12)
+        
+        # FPS indicator with performance bar
+        fps_container = tk.Frame(perf_content, bg='#1c2128')
+        fps_container.pack(fill=tk.X, pady=8)
+        
+        fps_header = tk.Frame(fps_container, bg='#1c2128')
+        fps_header.pack(fill=tk.X)
+        
+        tk.Label(fps_header,
+                text="📋 PROCESSING SPEED",
+                bg='#1c2128',
+                fg='#f0f6fc',
+                font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT)
+        
+        # Modern FPS display
+        fps_display = tk.Frame(fps_container, bg='#0969da', relief=tk.FLAT, bd=0, height=25)
+        fps_display.pack(fill=tk.X, pady=(5, 0))
+        fps_display.pack_propagate(False)
+        
+        self.fps_label = tk.Label(fps_display,
+                                 text="0.0 FPS",
+                                 bg='#0969da',
+                                 fg='white',
+                                 font=('Segoe UI', 10, 'bold'))
+        self.fps_label.pack(expand=True)
+        
+        # Modern metrics grid
+        metrics_container = tk.Frame(perf_content, bg='#1c2128')
+        metrics_container.pack(fill=tk.X, pady=10)
+        
+        # EAR Metric with visual indicator
+        ear_frame = tk.Frame(metrics_container, bg='#238636', relief=tk.FLAT, bd=1)
+        ear_frame.pack(fill=tk.X, pady=3, ipady=5)
+        
+        tk.Label(ear_frame,
+                text="👁️ EYE RATIO",
+                bg='#238636',
                 fg='white',
-                font=('Arial', 10),
-                anchor='w').pack(side=tk.LEFT)
+                font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT, padx=8)
         
-        self.fps_label = tk.Label(fps_frame,
-                                 text="0.0",
-                                 bg='#3a3a3a',
-                                 fg='#28a745',
-                                 font=('Arial', 10, 'bold'),
-                                 anchor='e')
-        self.fps_label.pack(side=tk.RIGHT)
-        
-        # Add current detection values display
-        values_frame = tk.Frame(perf_content, bg='#3a3a3a')
-        values_frame.pack(fill=tk.X, pady=2)
-        
-        tk.Label(values_frame,
-                text="👁️ EAR:",
-                bg='#3a3a3a',
-                fg='white',
-                font=('Arial', 9),
-                anchor='w').pack(side=tk.LEFT)
-        
-        self.ear_value_label = tk.Label(values_frame,
+        self.ear_value_label = tk.Label(ear_frame,
                                        text="--",
-                                       bg='#3a3a3a',
+                                       bg='#238636',
                                        fg='#17a2b8',
                                        font=('Arial', 9, 'bold'),
                                        anchor='e')
@@ -750,24 +834,63 @@ class FatigueDetectionGUI:
             self.video_label.config(text="🎥 CAMERA ACTIVE\n\n👤 Please position your face\n📏 Maintain 60-80cm distance\n✅ System is learning...")
             
     def _update_detection_values(self, ear_value=None, mar_value=None, head_angle=None, alert_level="SAFE"):
-        """Update real-time detection values display"""
-        if hasattr(self, 'ear_value_label') and ear_value is not None:
-            # Color code EAR value
-            if ear_value < 0.22:
-                ear_color = '#dc3545'  # Red - drowsy
-            elif ear_value < 0.25:
-                ear_color = '#ffc107'  # Yellow - caution
-            else:
-                ear_color = '#28a745'  # Green - alert
-            self.ear_value_label.config(text=f"{ear_value:.3f}", fg=ear_color)
+        """Update real-time detection values with modern visual feedback"""
+        try:
+            # EAR with dynamic status indicators
+            if hasattr(self, 'ear_value_label') and ear_value is not None:
+                if ear_value > 0.25:  # Safe
+                    bg_color, text_color = '#238636', 'white'  # Green
+                    status = "👁️ ALERT"
+                elif ear_value > 0.22:  # Caution
+                    bg_color, text_color = '#bf8700', 'white'  # Yellow
+                    status = "⚠️ TIRED"
+                else:  # Drowsy
+                    bg_color, text_color = '#da3633', 'white'  # Red
+                    status = "😴 DROWSY"
+                
+                # Update parent frame background for visual impact
+                if hasattr(self.ear_value_label, 'master'):
+                    self.ear_value_label.master.config(bg=bg_color)
+                self.ear_value_label.config(text=f"{ear_value:.3f} | {status}", 
+                                           bg=bg_color, fg=text_color, font=('Segoe UI', 9, 'bold'))
             
-        if hasattr(self, 'mar_value_label') and mar_value is not None:
-            # Color code MAR value  
-            if mar_value > 0.65:
-                mar_color = '#ffc107'  # Yellow - yawning
-            else:
-                mar_color = '#28a745'  # Green - normal
-            self.mar_value_label.config(text=f"{mar_value:.3f}", fg=mar_color)
+            # MAR with status descriptions
+            if hasattr(self, 'mar_value_label') and mar_value is not None:
+                if mar_value < 0.6:  # Normal
+                    bg_color, text_color = '#238636', 'white'  # Green
+                    status = "😐 NORMAL"
+                elif mar_value < 0.7:  # Wide
+                    bg_color, text_color = '#bf8700', 'white'  # Yellow
+                    status = "😯 WIDE"
+                else:  # Yawning
+                    bg_color, text_color = '#fd7e14', 'white'  # Orange
+                    status = "🥱 YAWN"
+                
+                if hasattr(self.mar_value_label, 'master'):
+                    self.mar_value_label.master.config(bg=bg_color)
+                self.mar_value_label.config(text=f"{mar_value:.3f} | {status}", 
+                                           bg=bg_color, fg=text_color, font=('Segoe UI', 9, 'bold'))
+            
+            # Head angle with directional indicators  
+            if hasattr(self, 'head_angle_label') and head_angle is not None:
+                if abs(head_angle) < 15:  # Normal
+                    bg_color, text_color = '#238636', 'white'  # Green
+                    status = "📐 UPRIGHT"
+                elif abs(head_angle) < 25:  # Tilted
+                    bg_color, text_color = '#bf8700', 'white'  # Yellow
+                    status = "📐 TILTED"
+                else:  # Very tilted/drowsy
+                    bg_color, text_color = '#da3633', 'white'  # Red  
+                    status = "💤 NODDING"
+                
+                direction = "➡️" if head_angle > 0 else "⬅️" if head_angle < 0 else "⬆️"
+                if hasattr(self.head_angle_label, 'master'):
+                    self.head_angle_label.master.config(bg=bg_color)
+                self.head_angle_label.config(text=f"{head_angle:.1f}° {direction} | {status}", 
+                                           bg=bg_color, fg=text_color, font=('Segoe UI', 9, 'bold'))
+                
+        except Exception as e:
+            silent_print(f"Error updating detection values: {e}")
             
         # Update detection quality status
         if hasattr(self, 'detection_quality_label'):
@@ -901,6 +1024,497 @@ class FatigueDetectionGUI:
             # Update real-time values
             self._update_detection_values(ear_value, mar_value, None, alert_level)
     
+    def _show_log_viewer(self):
+        """Show log viewer window with recent logs and alert history"""
+        try:
+            # Create log viewer window
+            log_window = tk.Toplevel(self.root)
+            log_window.title("📋 System Logs & Alert History")
+            log_window.geometry("900x700")
+            log_window.configure(bg='#0d1117')
+            
+            # Create notebook for different log types
+            notebook = ttk.Notebook(log_window)
+            notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Alert History Tab
+            alert_frame = tk.Frame(notebook, bg='#161b22')
+            notebook.add(alert_frame, text="🚨 Alert History")
+            
+            # Alert history content
+            alert_text = scrolledtext.ScrolledText(alert_frame,
+                                                  bg='#0d1117',
+                                                  fg='#f0f6fc',
+                                                  font=('Courier New', 10),
+                                                  height=25,
+                                                  wrap=tk.WORD)
+            alert_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Load alert history
+            try:
+                from ..alert_history import get_alert_stats_for_gui, alert_history
+                
+                # Get recent alerts
+                recent_alerts = alert_history.get_recent_alerts(50)
+                
+                if recent_alerts:
+                    alert_text.insert(tk.END, f"📊 RECENT ALERT HISTORY ({len(recent_alerts)} alerts)\n")
+                    alert_text.insert(tk.END, "=" * 60 + "\n\n")
+                    
+                    for alert in reversed(recent_alerts):  # Most recent first
+                        timestamp = datetime.fromtimestamp(alert.timestamp).strftime("%H:%M:%S")
+                        level_icon = {
+                            'CRITICAL': '🆘',
+                            'HIGH': '🔴', 
+                            'MEDIUM': '🟡',
+                            'LOW': '🟢'
+                        }.get(alert.alert_level, '⚪')
+                        
+                        alert_text.insert(tk.END, f"{level_icon} [{timestamp}] {alert.alert_level}\n")
+                        alert_text.insert(tk.END, f"   Confidence: {alert.confidence:.2f}\n")
+                        
+                        if alert.ear_value:
+                            alert_text.insert(tk.END, f"   EAR: {alert.ear_value:.3f}\n")
+                        if alert.mar_value:
+                            alert_text.insert(tk.END, f"   MAR: {alert.mar_value:.3f}\n")
+                        if alert.head_pose:
+                            alert_text.insert(tk.END, f"   Head: {alert.head_pose:.1f}°\n")
+                        
+                        alert_text.insert(tk.END, "\n")
+                else:
+                    alert_text.insert(tk.END, "📜 No alert history available yet.\n")
+                    
+            except Exception as e:
+                alert_text.insert(tk.END, f"⚠️ Error loading alert history: {e}\n")
+            
+            # System Logs Tab
+            log_frame = tk.Frame(notebook, bg='#161b22')
+            notebook.add(log_frame, text="📄 System Logs")
+            
+            log_text = scrolledtext.ScrolledText(log_frame,
+                                               bg='#0d1117',
+                                               fg='#f0f6fc',
+                                               font=('Courier New', 10),
+                                               height=25,
+                                               wrap=tk.WORD)
+            log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Load system logs
+            try:
+                log_dir = "log"
+                today = datetime.now().strftime("%Y-%m-%d")
+                log_file = os.path.join(log_dir, f"fatigue_detection_{today}.log")
+                
+                if os.path.exists(log_file):
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        # Get last 100 lines
+                        lines = f.readlines()
+                        recent_lines = lines[-100:] if len(lines) > 100 else lines
+                        
+                    log_text.insert(tk.END, f"📋 SYSTEM LOG - {today}\n")
+                    log_text.insert(tk.END, "=" * 60 + "\n\n")
+                    
+                    for line in recent_lines:
+                        # Color code log levels
+                        if "ERROR" in line:
+                            log_text.insert(tk.END, line, "error")
+                        elif "WARNING" in line:
+                            log_text.insert(tk.END, line, "warning") 
+                        elif "ALERT" in line:
+                            log_text.insert(tk.END, line, "alert")
+                        else:
+                            log_text.insert(tk.END, line)
+                else:
+                    log_text.insert(tk.END, f"📜 No log file found: {log_file}\n")
+                    
+            except Exception as e:
+                log_text.insert(tk.END, f"⚠️ Error loading system logs: {e}\n")
+            
+            # Configure text colors
+            log_text.tag_config("error", foreground="#ff6b6b")
+            log_text.tag_config("warning", foreground="#ffd93d")
+            log_text.tag_config("alert", foreground="#6bcf7f")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open log viewer:\n{str(e)}")
+    
+    def _export_session_data(self):
+        """Export current session data to Excel file"""
+        try:
+            # Confirm export action
+            result = messagebox.askyesno(
+                "Export Session Data", 
+                "Xuất dữ liệu phiên làm việc ra file Excel?\n\nFile sẽ chứa:\n• Thời gian cảnh báo\n• Mức độ nguy hiểm\n• Các thông số kỹ thuật\n• Thống kê tổng quan"
+            )
+            
+            if not result:
+                return
+            
+            # File save dialog for Excel
+            default_name = f"BaoCao_PhatHien_MeTai_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx"
+            filepath = filedialog.asksaveasfilename(
+                title="Lưu Báo Cáo Excel",
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                initialfile=default_name
+            )
+            
+            if not filepath:
+                return
+            
+            # Create Excel file with readable format
+            try:
+                import pandas as pd
+                from ..alert_history import alert_history, get_alert_stats_for_gui
+                
+                # Get session data
+                recent_alerts = alert_history.get_recent_alerts(200)  # Get more alerts for report
+                stats = get_alert_stats_for_gui()
+                
+                if not recent_alerts:
+                    messagebox.showwarning("Không có dữ liệu", "Chưa có dữ liệu cảnh báo để xuất!")
+                    return
+                
+                # Prepare data for Excel
+                excel_data = []
+                for alert in recent_alerts:
+                    # Convert timestamp to readable format
+                    alert_time = datetime.fromtimestamp(alert.timestamp)
+                    
+                    # Map alert level to Vietnamese
+                    level_map = {
+                        'LOW': 'Thấp',
+                        'MEDIUM': 'Trung bình', 
+                        'HIGH': 'Cao',
+                        'CRITICAL': 'Rất nguy hiểm'
+                    }
+                    
+                    # Status based on alert level
+                    status_map = {
+                        'LOW': 'Bình thường',
+                        'MEDIUM': 'Chú ý',
+                        'HIGH': 'Cảnh báo', 
+                        'CRITICAL': 'Nguy hiểm'
+                    }
+                    
+                    excel_data.append({
+                        'Thời gian': alert_time.strftime('%d/%m/%Y %H:%M:%S'),
+                        'Ngày': alert_time.strftime('%d/%m/%Y'),
+                        'Giờ': alert_time.strftime('%H:%M:%S'),
+                        'Mức độ': level_map.get(alert.alert_level, alert.alert_level),
+                        'Trạng thái': status_map.get(alert.alert_level, 'Không xác định'),
+                        'Độ tin cậy (%)': f"{alert.confidence*100:.1f}%",
+                        'Mắt đóng/mở': f"{alert.ear_value:.3f}" if alert.ear_value else "N/A",
+                        'Miệng há': f"{alert.mar_value:.3f}" if alert.mar_value else "N/A", 
+                        'Góc đầu (độ)': f"{alert.head_pose:.1f}°" if alert.head_pose else "N/A",
+                    })
+                
+                # Create DataFrame
+                df = pd.DataFrame(excel_data)
+                
+                # Create summary statistics
+                summary_data = {
+                    'Thống kê': ['Tổng số cảnh báo', 'Mức thấp', 'Mức trung bình', 'Mức cao', 'Rất nguy hiểm', 
+                               'Thời gian bắt đầu', 'Thời gian kết thúc', 'Tổng thời gian'],
+                    'Giá trị': [
+                        stats.get('total_alerts', 0),
+                        stats.get('low_alerts', 0),
+                        stats.get('medium_alerts', 0), 
+                        stats.get('high_alerts', 0),
+                        stats.get('critical_alerts', 0),
+                        datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                        datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                        f"{len(recent_alerts)} phút" if recent_alerts else "0 phút"
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                
+                # Write to Excel with multiple sheets
+                with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+                    # Main data sheet
+                    df.to_excel(writer, sheet_name='Chi tiết cảnh báo', index=False)
+                    
+                    # Summary sheet  
+                    summary_df.to_excel(writer, sheet_name='Tổng quan', index=False)
+                    
+                    # Get workbook and worksheets for formatting
+                    workbook = writer.book
+                    
+                    # Format main sheet
+                    if 'Chi tiết cảnh báo' in workbook.sheetnames:
+                        worksheet = workbook['Chi tiết cảnh báo']
+                        
+                        # Auto-adjust column widths
+                        for column in worksheet.columns:
+                            max_length = 0
+                            column_letter = column[0].column_letter
+                            for cell in column:
+                                if cell.value:
+                                    max_length = max(max_length, len(str(cell.value)))
+                            adjusted_width = min(max_length + 2, 20)
+                            worksheet.column_dimensions[column_letter].width = adjusted_width
+                    
+                    # Format summary sheet
+                    if 'Tổng quan' in workbook.sheetnames:
+                        summary_sheet = workbook['Tổng quan'] 
+                        for column in summary_sheet.columns:
+                            max_length = 0
+                            column_letter = column[0].column_letter
+                            for cell in column:
+                                if cell.value:
+                                    max_length = max(max_length, len(str(cell.value)))
+                            adjusted_width = min(max_length + 2, 30)
+                            summary_sheet.column_dimensions[column_letter].width = adjusted_width
+                
+                # Show success message
+                result = messagebox.askyesno(
+                    "Xuất dữ liệu thành công!",
+                    f"Báo cáo Excel đã được tạo thành công!\n\n"
+                    f"📄 File: {os.path.basename(filepath)}\n"
+                    f"📁 Vị trí: {os.path.dirname(filepath)}\n"
+                    f"📊 Số cảnh báo: {len(recent_alerts)}\n\n"
+                    f"Mở thư mục chứa file?"
+                )
+                
+                if result:
+                    import subprocess
+                    import platform
+                    
+                    if platform.system() == 'Windows':
+                        subprocess.run(['explorer', '/select,', filepath])
+                    elif platform.system() == 'Darwin':  # macOS
+                        subprocess.run(['open', '-R', filepath])
+                    else:  # Linux
+                        subprocess.run(['xdg-open', os.path.dirname(filepath)])
+                        
+                print(f"📊 Báo cáo Excel đã xuất: {filepath}")
+                
+            except ImportError:
+                messagebox.showerror("Lỗi", "Cần cài đặt thư viện pandas và openpyxl để xuất Excel!\n\nChạy: pip install pandas openpyxl")
+            except Exception as e:
+                messagebox.showerror("Lỗi xuất dữ liệu", f"Không thể tạo báo cáo Excel:\n{str(e)}")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Export failed:\n{str(e)}")
+    
+    def _clear_session_data(self):
+        """Clear current session data after confirmation"""
+        try:
+            # Get current session stats for confirmation
+            from ..alert_history import alert_history, get_alert_stats_for_gui
+            
+            stats = get_alert_stats_for_gui()
+            total_alerts = stats.get('total_alerts', 0)
+            
+            # Confirmation dialog with session info
+            result = messagebox.askyesnocancel(
+                "Clear Session Data",
+                f"Are you sure you want to clear the current session?\n\n"
+                f"📊 Current Session Stats:\n"
+                f"  • Total Alerts: {total_alerts}\n"
+                f"  • Critical: {stats.get('critical_alerts', 0)}\n"
+                f"  • High: {stats.get('high_alerts', 0)}\n"
+                f"  • Medium: {stats.get('medium_alerts', 0)}\n"
+                f"  • Low: {stats.get('low_alerts', 0)}\n\n"
+                f"This action cannot be undone!\n\n"
+                f"Export data first? (Yes = Export then clear, No = Clear only, Cancel = Cancel)"
+            )
+            
+            if result is None:  # Cancel
+                return
+            elif result:  # Yes - Export first
+                self._export_session_data()
+                # Ask again after export
+                if not messagebox.askyesno("Confirm Clear", "Proceed with clearing session data?"):
+                    return
+            
+            # Clear the session
+            alert_history.clear_session()
+            
+            # Reset UI counters
+            self.alert_counts = {
+                'LOW': 0,
+                'MEDIUM': 0,
+                'HIGH': 0,
+                'CRITICAL': 0
+            }
+            self._update_alert_display()
+            
+            # Update alert message
+            self._update_alert_message("Session data cleared - Starting fresh session", "info")
+            
+            messagebox.showinfo("Session Cleared", "Session data has been cleared successfully!")
+            print("🗑️ Session data cleared")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clear session data:\n{str(e)}")
+    
+    def _show_log_viewer(self):
+        """Show log viewer window with recent logs and alert history"""
+        try:
+            # Create log viewer window
+            log_window = tk.Toplevel(self.root)
+            log_window.title("📋 System Logs & Alert History")
+            log_window.geometry("900x700")
+            log_window.configure(bg='#0d1117')
+            
+            # Create notebook for different log types
+            notebook = ttk.Notebook(log_window)
+            notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Alert History Tab
+            alert_frame = tk.Frame(notebook, bg='#161b22')
+            notebook.add(alert_frame, text="🚨 Alert History")
+            
+            # Alert history content
+            alert_text = scrolledtext.ScrolledText(alert_frame,
+                                                  bg='#0d1117',
+                                                  fg='#f0f6fc',
+                                                  font=('Courier New', 10),
+                                                  height=25,
+                                                  wrap=tk.WORD)
+            alert_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Load alert history
+            try:
+                from ..alert_history import get_alert_stats_for_gui, alert_history
+                
+                # Get recent alerts
+                recent_alerts = alert_history.get_recent_alerts(50)
+                
+                if recent_alerts:
+                    alert_text.insert(tk.END, f"📊 RECENT ALERT HISTORY ({len(recent_alerts)} alerts)\n")
+                    alert_text.insert(tk.END, "=" * 60 + "\n\n")
+                    
+                    for alert in reversed(recent_alerts):  # Most recent first
+                        timestamp = datetime.fromtimestamp(alert.timestamp).strftime("%H:%M:%S")
+                        level_icon = {
+                            'CRITICAL': '🆘',
+                            'HIGH': '🔴', 
+                            'MEDIUM': '🟡',
+                            'LOW': '🟢'
+                        }.get(alert.alert_level, '⚪')
+                        
+                        alert_text.insert(tk.END, f"{level_icon} [{timestamp}] {alert.alert_level}\n")
+                        alert_text.insert(tk.END, f"   Confidence: {alert.confidence:.2f}\n")
+                        
+                        if alert.ear_value:
+                            alert_text.insert(tk.END, f"   EAR: {alert.ear_value:.3f}\n")
+                        if alert.mar_value:
+                            alert_text.insert(tk.END, f"   MAR: {alert.mar_value:.3f}\n")
+                        if alert.head_pose:
+                            alert_text.insert(tk.END, f"   Head: {alert.head_pose:.1f}°\n")
+                        
+                        alert_text.insert(tk.END, "\n")
+                else:
+                    alert_text.insert(tk.END, "📜 No alert history available yet.\n")
+                    
+            except Exception as e:
+                alert_text.insert(tk.END, f"⚠️ Error loading alert history: {e}\n")
+            
+            # System Logs Tab
+            log_frame = tk.Frame(notebook, bg='#161b22')
+            notebook.add(log_frame, text="📄 System Logs")
+            
+            log_text = scrolledtext.ScrolledText(log_frame,
+                                               bg='#0d1117',
+                                               fg='#f0f6fc',
+                                               font=('Courier New', 10),
+                                               height=25,
+                                               wrap=tk.WORD)
+            log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Load system logs
+            try:
+                log_dir = "log"
+                today = datetime.now().strftime("%Y-%m-%d")
+                log_file = os.path.join(log_dir, f"fatigue_detection_{today}.log")
+                
+                if os.path.exists(log_file):
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        # Get last 100 lines
+                        lines = f.readlines()
+                        recent_lines = lines[-100:] if len(lines) > 100 else lines
+                        
+                    log_text.insert(tk.END, f"📋 SYSTEM LOG - {today}\n")
+                    log_text.insert(tk.END, "=" * 60 + "\n\n")
+                    
+                    for line in recent_lines:
+                        # Color code log levels
+                        if "ERROR" in line:
+                            log_text.insert(tk.END, line, "error")
+                        elif "WARNING" in line:
+                            log_text.insert(tk.END, line, "warning") 
+                        elif "ALERT" in line:
+                            log_text.insert(tk.END, line, "alert")
+                        else:
+                            log_text.insert(tk.END, line)
+                else:
+                    log_text.insert(tk.END, f"📜 No log file found: {log_file}\n")
+                    
+            except Exception as e:
+                log_text.insert(tk.END, f"⚠️ Error loading system logs: {e}\n")
+            
+            # Configure text colors
+            log_text.tag_config("error", foreground="#ff6b6b")
+            log_text.tag_config("warning", foreground="#ffd93d")
+            log_text.tag_config("alert", foreground="#6bcf7f")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open log viewer:\n{str(e)}")
+    
+    def _clear_session_data(self):
+        """Clear current session data after confirmation"""
+        try:
+            # Get current session stats for confirmation
+            from ..alert_history import alert_history, get_alert_stats_for_gui
+            
+            stats = get_alert_stats_for_gui()
+            total_alerts = stats.get('total_alerts', 0)
+            
+            # Confirmation dialog with session info
+            result = messagebox.askyesnocancel(
+                "Clear Session Data",
+                f"Are you sure you want to clear the current session?\n\n"
+                f"📊 Current Session Stats:\n"
+                f"  • Total Alerts: {total_alerts}\n"
+                f"  • Critical: {stats.get('critical_alerts', 0)}\n"
+                f"  • High: {stats.get('high_alerts', 0)}\n"
+                f"  • Medium: {stats.get('medium_alerts', 0)}\n"
+                f"  • Low: {stats.get('low_alerts', 0)}\n\n"
+                f"This action cannot be undone!\n\n"
+                f"Export data first? (Yes = Export then clear, No = Clear only, Cancel = Cancel)"
+            )
+            
+            if result is None:  # Cancel
+                return
+            elif result:  # Yes - Export first
+                self._export_session_data()
+                # Ask again after export
+                if not messagebox.askyesno("Confirm Clear", "Proceed with clearing session data?"):
+                    return
+            
+            # Clear the session
+            alert_history.clear_session()
+            
+            # Reset UI counters
+            self.alert_counts = {
+                'LOW': 0,
+                'MEDIUM': 0,
+                'HIGH': 0,
+                'CRITICAL': 0
+            }
+            self._update_alert_display()
+            
+            # Update alert message
+            self._update_alert_message("Session data cleared - Starting fresh session", "info")
+            
+            messagebox.showinfo("Session Cleared", "Session data has been cleared successfully!")
+            print("🗑️ Session data cleared")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clear session data:\n{str(e)}")
+    
     def _test_alert_counter(self):
         """Test alert counter functionality"""
         import random
@@ -911,6 +1525,48 @@ class FatigueDetectionGUI:
         alert_type = 'warning' if level in ['LOW', 'MEDIUM'] else 'critical'
         
         self._handle_pipeline_callback('alert', test_message, alert_type)
+    
+    def _take_screenshot(self):
+        """Take screenshot of current detection display"""
+        try:
+            if not hasattr(self, 'current_image') or self.current_image is None:
+                messagebox.showwarning("No Image", "No current image to screenshot")
+                return
+            
+            # Create output directory if it doesn't exist
+            output_dir = "output/screenshots"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"detection_screenshot_{timestamp}.jpg"
+            filepath = os.path.join(output_dir, filename)
+            
+            # Save current image from camera display
+            cv2.imwrite(filepath, self.current_image)
+            
+            # Show success message
+            result = messagebox.askyesno(
+                "Screenshot Saved",
+                f"Screenshot saved successfully!\n\nFile: {filename}\nLocation: {output_dir}\n\nOpen folder?"
+            )
+            
+            if result:
+                # Open file explorer to screenshots folder
+                import subprocess
+                import platform
+                
+                if platform.system() == 'Windows':
+                    subprocess.run(['explorer', os.path.abspath(output_dir)])
+                elif platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', os.path.abspath(output_dir)])
+                else:  # Linux
+                    subprocess.run(['xdg-open', os.path.abspath(output_dir)])
+            
+            print(f"📸 Screenshot saved: {filepath}")
+            
+        except Exception as e:
+            messagebox.showerror("Screenshot Error", f"Failed to save screenshot:\n{str(e)}")
     
     def _monitor_alert_history(self):
         """Monitor alert history to update counters even if GUI callback fails"""
