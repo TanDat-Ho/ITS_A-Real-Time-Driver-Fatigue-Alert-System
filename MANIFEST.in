@@ -1,0 +1,119 @@
+# MANIFEST.in - Include additional files in source distribution
+# This file tells setuptools which files to include in the source distribution
+# beyond the standard Python files.
+
+# Core project files
+include README.md
+include LICENSE
+include CHANGELOG.md
+include setup.py
+include pyproject.toml
+include fatigue_app.spec
+
+# Requirements files
+include requirements.txt
+include requirements-dev.txt
+include requirements-production-guide.txt
+include requirements-development-guide.txt
+include requirements-old-backup.txt
+include SETUP_GUIDE.md
+
+# Build and deployment scripts
+include launcher.py
+include build-windows.ps1
+include build-linux.sh
+include build-macos.sh
+include test-build.sh
+
+# Documentation
+recursive-include docs *.md *.rst *.txt *.png *.jpg *.jpeg *.gif *.svg
+
+# Configuration files
+recursive-include config *.json *.yaml *.yml *.ini *.toml
+
+# Assets and resources
+recursive-include assets *.png *.jpg *.jpeg *.ico *.icns *.wav *.mp3 *.svg *.gif
+recursive-include assets/sounds *.wav *.mp3 *.ogg
+recursive-include assets/icon *.png *.ico *.icns *.svg
+include assets/fatigue-detection.desktop
+
+# Installer files and packaging
+recursive-include installer *.nsi *.exe *.sh *.xml *.plist *.iss
+
+# Test files
+recursive-include tests *.py *.json *.yaml *.yml
+
+# CI/CD workflows and templates
+recursive-include .github *.yml *.yaml *.md
+recursive-include .github/workflows *.yml *.yaml
+
+# Data directories (structure only, not actual data files)
+recursive-include data *.md
+recursive-include output *.md  
+recursive-include log *.md
+
+# Source code structure (explicit inclusion for clarity)
+recursive-include src *.py *.json *.yaml *.yml
+recursive-include src/app *.py
+recursive-include src/input_layer *.py
+recursive-include src/processing_layer *.py
+recursive-include src/output_layer *.py
+recursive-include src/processing_layer/detect_landmark *.py
+recursive-include src/processing_layer/detect_rules *.py  
+recursive-include src/processing_layer/vision_processor *.py
+recursive-include src/output_layer/ui *.py
+
+# Include empty __init__.py files to maintain package structure
+include src/__init__.py
+include src/app/__init__.py
+include src/input_layer/__init__.py
+include src/processing_layer/__init__.py
+include src/output_layer/__init__.py
+include src/processing_layer/detect_landmark/__init__.py
+include src/processing_layer/detect_rules/__init__.py
+include src/processing_layer/vision_processor/__init__.py
+include src/output_layer/ui/__init__.py
+include assets/__init__.py
+
+# Exclude patterns (files/directories that should never be in distribution)
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude .DS_Store
+global-exclude .git*
+global-exclude .vscode*
+global-exclude .idea*
+global-exclude *.tmp
+global-exclude *.temp
+global-exclude *.log
+global-exclude *.cache
+global-exclude .env
+global-exclude .env.*
+
+# Exclude build artifacts and temporary directories
+prune dist
+prune build  
+prune __pycache__
+prune .venv
+prune venv
+prune env
+prune .git
+prune .pytest_cache
+prune .mypy_cache
+prune .coverage
+prune htmlcov
+prune node_modules
+prune .tox
+
+# Exclude OS-specific files
+global-exclude Thumbs.db
+global-exclude desktop.ini
+global-exclude .directory
+
+# Exclude editor temporary files
+global-exclude *~
+global-exclude *.swp
+global-exclude *.swo
+global-exclude .#*
+global-exclude \#*#

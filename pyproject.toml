@@ -1,29 +1,186 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "driver-fatigue-alert"
+name = "driver-fatigue-alert-system"
 version = "1.0.0"
-description = "Real-time Driver Fatigue Alert System."
+description = "Real-time Driver Fatigue Alert System using computer vision and MediaPipe"
 readme = "README.md"
 requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["computer-vision", "fatigue-detection", "driver-monitoring", "mediapipe", "opencv", "real-time", "safety", "ai"]
 
 authors = [
-    {name = "Dat"}
+    {name = "Dat", email = "dat@example.com"}
 ]
 
+maintainers = [
+    {name = "Dat", email = "dat@example.com"}
+]
+
+# Core dependencies - synchronized with requirements.txt
 dependencies = [
     "opencv-python>=4.8.0",
-    "mediapipe==0.10.14",
-    "numpy>=1.21.0",
+    "mediapipe==0.10.14", 
+    "numpy>=1.21.0,<2.0.0",
     "imutils>=0.5.4",
     "Pillow>=9.0.0",
     "pygame>=2.1.0"
 ]
 
+# Optional dependencies for different use cases
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+    "mypy>=0.991",
+    "pre-commit>=2.20.0"
+]
+build = [
+    "PyInstaller>=5.13.0",
+    "auto-py-to-exe>=2.34.0",
+    "pyinstaller-hooks-contrib>=2023.5"
+]
+gui = [
+    "tkinter-tooltip>=2.0.0",
+    "customtkinter>=5.2.0"
+]
+audio = [
+    "pygame>=2.1.0",
+    "playsound>=1.3.0"
+]
+all = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0", 
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+    "mypy>=0.991",
+    "pre-commit>=2.20.0",
+    "PyInstaller>=5.13.0",
+    "auto-py-to-exe>=2.34.0",
+    "pyinstaller-hooks-contrib>=2023.5",
+    "tkinter-tooltip>=2.0.0",
+    "customtkinter>=5.2.0",
+    "playsound>=1.3.0"
+]
+
+# Project URLs and metadata
+[project.urls]
+"Homepage" = "https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System"
+"Documentation" = "https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/tree/main/docs"
+"Repository" = "https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System"
+"Bug Tracker" = "https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/issues"
+"Changelog" = "https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System/blob/main/CHANGELOG.md"
+
+# Entry points for command line tools
+[project.scripts]
+fatigue-detection = "launcher:main"
+fatigue-gui = "launcher:main"  
+fatigue-cli = "launcher:cli_main"
+
+# Setuptools configuration
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.png", "*.jpg", "*.wav", "*.mp3", "*.ico", "*.icns"]
+
+# Black code formatter configuration
+[tool.black]
+line-length = 88
+target-version = ["py38", "py39", "py310", "py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+# MyPy type checker configuration
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "mediapipe.*",
+    "pygame.*",
+    "imutils.*"
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning"
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:"
+]
+
+# Flake8 linting configuration  
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache",
+    ".mypy_cache",
+    "build",
+    "dist"
+]

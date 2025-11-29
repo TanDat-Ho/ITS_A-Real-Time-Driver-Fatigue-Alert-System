@@ -1,0 +1,35 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Driver Fatigue Detection
+GenericName=Fatigue Detection System
+Comment=Real-time driver fatigue detection system using computer vision
+Exec=/usr/bin/FatigueDetectionApp
+TryExec=FatigueDetectionApp
+Icon=fatigue-detection
+Path=/usr/bin
+Terminal=false
+Categories=Utility;Science;AudioVideo;Security;Education;
+Keywords=fatigue;driver;detection;safety;monitoring;camera;vision;alert;
+StartupNotify=true
+StartupWMClass=FatigueDetectionApp
+MimeType=application/x-fatigue-data;
+Actions=Configure;About;Logs;
+
+[Desktop Action Configure]
+Name=Configure Settings
+Comment=Open application settings and preferences
+Exec=/usr/bin/FatigueDetectionApp --configure
+Icon=fatigue-detection
+
+[Desktop Action About]
+Name=About
+Comment=About Driver Fatigue Detection System
+Exec=/usr/bin/FatigueDetectionApp --about
+Icon=fatigue-detection
+
+[Desktop Action Logs]
+Name=View Logs
+Comment=View application logs and statistics
+Exec=/usr/bin/FatigueDetectionApp --logs
+Icon=fatigue-detection
