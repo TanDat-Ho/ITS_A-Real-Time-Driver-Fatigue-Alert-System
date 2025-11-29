@@ -31,7 +31,7 @@ class PipelineConstants:
     MAX_FRAME_QUEUE_SIZE = 8
     MAX_RESULT_QUEUE_SIZE = 3
     CAMERA_STABILIZATION_TIME = 1.0
-    MAX_CAPTURE_FPS = 200  # Max 200 FPS capture rate
+    MAX_CAPTURE_FPS = 60   # Max 60 FPS capture rate (optimal for 30 FPS target)
     FRAME_DROP_SLEEP = 0.005
     PROCESSING_TIMEOUT = 0.1
     GUI_UPDATE_SLEEP = 0.01
@@ -133,6 +133,11 @@ class OptimizedFatigueDetectionPipeline:
                 mp_config = MEDIAPIPE_CONFIG
             
             self.camera = CameraHandler(**camera_config)
+            
+            # Start camera
+            if not self.camera.start():
+                raise RuntimeError("Failed to start camera")
+                
             self.landmark_detector = FaceLandmarkDetector(**mp_config)
             self.fatigue_detector = self._create_fatigue_detector()
             
@@ -218,9 +223,10 @@ class OptimizedFatigueDetectionPipeline:
         last_time = time.time()
         
         while self.is_running:
-            frame = self.camera.read_frame()
-            if frame is None:
+            frame_data = self.camera.get_frame()
+            if frame_data is None:
                 continue
+            frame = frame_data['frame']
             
             # FPS calculation
             frame_count += 1

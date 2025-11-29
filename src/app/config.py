@@ -38,7 +38,16 @@ CAMERA_CONFIG = {
     "target_size": (640, 480),    # Frame size
     "fps_limit": 30,              # FPS limit
     "color": "bgr",               # Color format (bgr or rgb)
-    "normalize": False            # Normalize pixel values
+    "normalize": False,           # Normalize pixel values
+    # Optimal camera properties for drowsiness detection
+    "brightness": 80,             # Optimized brightness for 130-140 range
+    "contrast": 40,              # User recommended contrast
+    "exposure": -8,              # Reduced exposure for optimal brightness
+    "auto_exposure": 0.25,       # Auto exposure enabled
+    "auto_wb": 1,                # Auto white balance
+    "queue_size": 1,             # Minimal buffer for lowest latency
+    "auto_reconnect": True,      # Auto reconnect on failure
+    "validate_quality": False    # Disable for performance
 }
 
 # ===== MEDIAPIPE CONFIGURATION =====

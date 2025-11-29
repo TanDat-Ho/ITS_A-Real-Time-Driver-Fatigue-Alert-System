@@ -12,19 +12,23 @@ logger = logging.getLogger(__name__)
 class OptimizedInputConfig:
     """Optimized configuration for drowsy detection input"""
     
-    # Base camera configuration optimized for face detection
+    # Optimal configuration for drowsiness detection (30 FPS standard)
     BASE_CAMERA_CONFIG = {
         "src": 0,
-        "queue_size": 5,
-        "target_size": (640, 480),
-        "color": "rgb",
+        "queue_size": 1,           # Minimal buffer for lowest latency
+        "target_size": (640, 480), # High quality capture
+        "processing_size": (320, 240), # Resize for processing speed
+        "color": "bgr",            # Standard color format
         "normalize": False,
-        "fps_limit": 25.0,
+        "fps_limit": 30.0,         # Smooth 30 FPS for real-time
         "auto_reconnect": True,
-        "validate_quality": True,
-        "exposure": None,
-        "brightness": None,
-        "contrast": None,
+        "validate_quality": False, # Disable for performance
+        # Optimized camera properties
+        "brightness": 80,          # Optimal brightness for 130-140 range
+        "contrast": 40,            # User recommended contrast
+        "exposure": -8,            # Reduced exposure for optimal brightness
+        "auto_exposure": 0.25,     # Auto exposure enabled
+        "auto_wb": 1,              # Auto white balance
     }
     
     # MediaPipe Face Mesh configuration optimized for real-time
@@ -95,19 +99,21 @@ class OptimizedInputConfig:
         cpu_cores = hardware_info.get("cpu_cores", 4)
         memory_available = hardware_info.get("memory_available_gb", 4.0)
         
-        # Adapt based on CPU performance
+        # Adapt based on CPU performance (30 FPS standard with processing resize)
         if cpu_cores < 4:
-            config["camera"]["target_size"] = (480, 360)
-            config["camera"]["fps_limit"] = 20.0
-            config["camera"]["queue_size"] = 3
+            config["camera"]["target_size"] = (480, 360)    # Reduced capture for low-end
+            config["camera"]["processing_size"] = (240, 180) # Smaller processing
+            config["camera"]["fps_limit"] = 25.0
+            config["camera"]["queue_size"] = 1
             config["mediapipe"]["refine_landmarks"] = False
             config["mediapipe"]["min_detection_confidence"] = 0.6
             logger.info("Applied low-end CPU optimizations")
             
         elif cpu_cores >= 8:
-            config["camera"]["target_size"] = (640, 480)
-            config["camera"]["fps_limit"] = 30.0
-            config["camera"]["queue_size"] = 8
+            config["camera"]["target_size"] = (640, 480)    # Full quality
+            config["camera"]["processing_size"] = (320, 240) # Standard processing
+            config["camera"]["fps_limit"] = 30.0            # Full 30 FPS
+            config["camera"]["queue_size"] = 2
             config["mediapipe"]["refine_landmarks"] = True
             logger.info("Applied high-end CPU optimizations")
         
@@ -130,11 +136,13 @@ class OptimizedInputConfig:
         }
         
         if gpu_available:
-            # Enhanced settings for GPU systems
-            config["camera"]["target_size"] = (640, 480)
-            config["camera"]["fps_limit"] = 30.0
+            # Enhanced settings for GPU systems (full 30 FPS capability)
+            config["camera"]["target_size"] = (640, 480)     # High quality capture
+            config["camera"]["processing_size"] = (320, 240)  # GPU can handle resize
+            config["camera"]["fps_limit"] = 30.0            # Full 30 FPS with GPU
+            config["camera"]["queue_size"] = 2
             config["mediapipe"]["refine_landmarks"] = True
-            logger.info("Applied GPU acceleration optimizations")
+            logger.info("Applied GPU acceleration optimizations (30 FPS)")
         
         return config
     
@@ -166,3 +174,9 @@ class OptimizedInputConfig:
             logger.info("Applied automatic environment adaptation")
             
         return base_config
+
+
+# Convenience function for external usage
+def get_optimized_config() -> Dict[str, Any]:
+    """Get optimized configuration with hardware adaptation"""
+    return OptimizedInputConfig.adapt_for_hardware()
