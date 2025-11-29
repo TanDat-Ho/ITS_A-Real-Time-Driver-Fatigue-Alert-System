@@ -47,6 +47,109 @@ Xây dựng một hệ thống thời gian thực có khả năng:
 - 🔧 **Smart Configuration**: 3 chế độ (Sensitive/Default/Conservative)
 - 📋 **Detailed Logging**: Ghi log chi tiết cho phân tích
 
+## 📦 **INSTALLATION & DEPLOYMENT**
+
+### **Option 1: Executable Package (Recommended for End Users)**
+
+Download pre-built executables - no Python installation required:
+
+#### Windows
+```powershell
+# Download and run installer
+https://github.com/yourorg/driver-fatigue-detection/releases/download/v1.0.0/FatigueDetectionApp-Setup.exe
+
+# Or portable version
+https://github.com/yourorg/driver-fatigue-detection/releases/download/v1.0.0/FatigueDetectionApp-1.0.0-windows-x64.zip
+```
+
+#### macOS
+```bash
+# Download DMG installer
+https://github.com/yourorg/driver-fatigue-detection/releases/download/v1.0.0/FatigueDetectionApp-1.0.0-macOS.dmg
+
+# Install: Drag app to Applications folder
+```
+
+#### Linux
+```bash
+# AppImage (portable, works on most distributions)
+wget https://github.com/yourorg/driver-fatigue-detection/releases/download/v1.0.0/FatigueDetectionApp-1.0.0-x86_64.AppImage
+chmod +x FatigueDetectionApp-1.0.0-x86_64.AppImage
+./FatigueDetectionApp-1.0.0-x86_64.AppImage
+
+# Debian/Ubuntu - DEB package
+sudo dpkg -i driver-fatigue-detection_1.0.0_amd64.deb
+
+# Fedora/CentOS - RPM package  
+sudo dnf install driver-fatigue-detection-1.0.0-1.x86_64.rpm
+
+# Snap package (universal)
+sudo snap install driver-fatigue-detection
+
+# Flatpak
+flatpak install com.fatiguedetection.App
+```
+
+### **Option 2: Development Setup**
+
+For developers who want to run from source or contribute:
+
+#### Prerequisites
+- **Python**: 3.8-3.11 (recommended: 3.11)
+- **Camera**: USB webcam or built-in camera
+- **OS**: Windows 10+, macOS 10.14+, Linux Ubuntu 18.04+
+
+#### Installation Steps
+```bash
+# 1. Clone repository
+git clone https://github.com/yourorg/driver-fatigue-detection.git
+cd driver-fatigue-detection
+
+# 2. Create virtual environment
+python -m venv .venv
+
+# Activate environment
+# Windows:
+.\.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements-build.txt
+
+# 4. Run application
+python launcher.py
+```
+
+### **Building from Source**
+
+To create your own executable packages:
+
+#### Windows
+```powershell
+# Build executable
+.\build-windows.ps1
+
+# Build with installer
+.\build-windows.ps1 -CreateInstaller
+
+# Build options
+.\build-windows.ps1 -BuildMode onefile     # Single executable
+.\build-windows.ps1 -BuildMode onedir      # Folder with dependencies
+```
+
+#### Linux/macOS
+```bash
+# Build executable and packages
+chmod +x build-linux.sh
+./build-linux.sh
+
+# Build specific format
+./build-linux.sh --appimage-only   # Linux AppImage only
+./build-linux.sh --deb-only        # Debian package only
+./build-linux.sh --onedir          # Directory build
+```
+
 ## 🏗️ **KIẾN TRÚC HỆ THỐNG**
 
 ### **Mô hình 3-Layer Architecture**
@@ -233,50 +336,6 @@ Lệnh này sẽ tự động tạo các thư mục:
 - `assets/sounds/` - Âm thanh cảnh báo
 - `assets/icon/` - Icon ứng dụng
 - `output/snapshots/` - Ảnh chụp màn hình
-
-## 🐳 Triển Khai Với Docker (Khuyến Nghị)
-
-### Cài Đặt Nhanh
-
-#### Windows
-
-```powershell
-# Clone repository
-git clone https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System.git
-cd ITS_A-Real-Time-Driver-Fatigue-Alert-System
-
-# Chạy với GUI
-.\deploy-docker.ps1 -Action build
-
-# Chạy headless (không GUI)
-.\deploy-docker.ps1 -Action headless
-```
-
-#### Linux/macOS
-
-```bash
-# Clone repository
-git clone https://github.com/TanDat-Ho/ITS_A-Real-Time-Driver-Fatigue-Alert-System.git
-cd ITS_A-Real-Time-Driver-Fatigue-Alert-System
-
-# Chạy với GUI
-./deploy-docker.sh build
-
-# Chạy headless
-./deploy-docker.sh headless
-```
-
-### Sử Dụng Image Có Sẵn
-
-```bash
-# Pull từ GitHub Container Registry
-docker pull ghcr.io/tandat-ho/its_a-real-time-driver-fatigue-alert-system:latest
-
-# Chạy trực tiếp
-docker run -it --rm --device /dev/video0 ghcr.io/tandat-ho/its_a-real-time-driver-fatigue-alert-system:latest
-```
-
-**📖 Xem chi tiết:** [docs/DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md)
 
 ## 🎮 **HƯỚNG DẪN SỬ DỤNG**
 

@@ -1,0 +1,465 @@
+# 🛠️ HƯỚNG DẪN CÀI ĐẶT CHI TIẾT - DEVELOPMENT ENVIRONMENT
+# Development Dependencies - Dành cho developers
+
+## 👨‍💻 MỤC ĐÍCH FILE NÀY
+File này dành cho developers muốn:
+- Phát triển và modify source code
+- Build executable files (.exe, .app, .AppImage)
+- Chạy tests và code quality checks
+- Tạo documentation
+- Deploy và publish ứng dụng
+
+## 📋 YÊU CẦU BỔ SUNG (NGOÀI PRODUCTION)
+- Git (version control)
+- Build tools (C++ compiler cho một số packages)
+- Text editor/IDE (VS Code, PyCharm khuyến nghị)
+- Terminal/Command line familiarity
+
+## 🔧 BƯỚC 1: CÀI ĐẶT PRODUCTION DEPENDENCIES TRƯỚC
+
+### Làm theo hướng dẫn trong requirements-production-guide.txt trước:
+1. Kiểm tra Python version (3.8-3.11)
+2. Tạo và kích hoạt virtual environment
+3. Cài đặt production dependencies
+
+### Kiểm tra production setup hoạt động:
+```bash
+# Kích hoạt môi trường ảo
+.venv\Scripts\activate
+
+# Test production dependencies
+python -c "import cv2, mediapipe, numpy, pygame; print('✅ Production ready!')"
+```
+
+## 🛠️ BƯỚC 2: CÀI ĐẶT DEVELOPMENT DEPENDENCIES
+
+### Cài đặt tất cả development tools:
+```bash
+pip install -r requirements-dev.txt
+```
+
+### Hoặc cài đặt từng nhóm chi tiết:
+
+## 🏗️ NHÓM 1: BUILD TOOLS
+
+#### 1. PyInstaller - Tạo executable files:
+```bash
+pip install pyinstaller>=5.13.0
+```
+**Mục đích**: 
+- Build .exe files cho Windows
+- Build .app bundles cho macOS  
+- Build standalone executables cho Linux
+- Bundle tất cả dependencies thành 1 file
+
+**Sử dụng**:
+```bash
+# Build Windows executable
+pyinstaller --onedir --windowed src/main.py
+
+# Build với custom spec file
+pyinstaller fatigue_app.spec
+```
+
+#### 2. Build - Python package building:
+```bash
+pip install build>=0.10.0
+```
+**Mục đích**: Tạo wheel và source distributions cho PyPI upload
+
+**Sử dụng**:
+```bash
+python -m build
+```
+
+#### 3. Twine - Package uploading:
+```bash
+pip install twine>=4.0.0
+```
+**Mục đích**: Upload packages lên PyPI hoặc private repositories
+
+**Sử dụng**:
+```bash
+twine upload dist/*
+```
+
+## 🎨 NHÓM 2: GUI DEVELOPMENT (OPTIONAL)
+
+#### 4. Tkinter-page - GUI designer:
+```bash
+pip install tkinter-page>=0.1.0
+```
+**Mục đích**: Visual GUI designer cho tkinter applications
+**Lưu ý**: Optional vì project đã có GUI, chỉ cần nếu muốn modify interface
+
+## 🤖 NHÓM 3: MACHINE LEARNING BOOST (OPTIONAL)
+
+#### 5. Scikit-learn - ML algorithms:
+```bash
+pip install scikit-learn>=1.0.0
+```
+**Mục đích**: 
+- Advanced classification algorithms
+- Data preprocessing và feature engineering
+- Model evaluation metrics
+
+#### 6. SciPy - Scientific computing:
+```bash
+pip install scipy>=1.7.0
+```
+**Mục đích**:
+- Advanced mathematical functions
+- Signal processing for audio alerts
+- Optimization algorithms
+
+## 🧪 NHÓM 4: TESTING FRAMEWORK
+
+#### 7. Pytest - Testing framework:
+```bash
+pip install pytest>=7.0.0
+```
+**Mục đích**: Chạy unit tests, integration tests
+
+**Sử dụng**:
+```bash
+# Chạy tất cả tests
+pytest tests/
+
+# Chạy với verbose output
+pytest -v tests/
+
+# Chạy specific test file
+pytest tests/test_detection_rules.py
+```
+
+#### 8. Pytest-cov - Coverage reporting:
+```bash
+pip install pytest-cov>=4.0.0
+```
+**Mục đích**: Đo test coverage, tạo coverage reports
+
+**Sử dụng**:
+```bash
+# Chạy tests với coverage
+pytest --cov=src tests/
+
+# Tạo HTML coverage report
+pytest --cov=src --cov-report=html tests/
+```
+
+## 📏 NHÓM 5: CODE QUALITY & LINTING
+
+#### 9. Black - Code formatter:
+```bash
+pip install black>=23.0.0
+```
+**Mục đích**: Tự động format code theo PEP 8 standard
+
+**Sử dụng**:
+```bash
+# Format tất cả files
+black src/
+
+# Check formatting (không thay đổi files)
+black --check src/
+
+# Format với line length 88
+black --line-length 88 src/
+```
+
+#### 10. Flake8 - Code linter:
+```bash
+pip install flake8>=6.0.0
+```
+**Mục đích**: Kiểm tra code style, syntax errors, complexity
+
+**Sử dụng**:
+```bash
+# Lint all Python files
+flake8 src/
+
+# Lint với custom config
+flake8 --max-line-length=88 --ignore=E203,W503 src/
+```
+
+#### 11. Isort - Import sorter:
+```bash
+pip install isort>=5.12.0
+```
+**Mục đích**: Tự động sắp xếp và organize import statements
+
+**Sử dụng**:
+```bash
+# Sort imports
+isort src/
+
+# Check imports (không thay đổi)
+isort --check-only src/
+
+# Sort với Black compatibility
+isort --profile black src/
+```
+
+## 📚 NHÓM 6: DOCUMENTATION
+
+#### 12. Sphinx - Documentation generator:
+```bash
+pip install sphinx>=5.0.0
+```
+**Mục đích**: Tạo professional documentation từ docstrings
+
+#### 13. Sphinx-rtd-theme - ReadTheDocs theme:
+```bash
+pip install sphinx-rtd-theme>=1.2.0
+```
+**Mục đích**: Theme đẹp cho Sphinx documentation
+
+**Sử dụng**:
+```bash
+# Tạo documentation
+sphinx-quickstart docs/
+sphinx-build -b html docs/ docs/_build/html
+```
+
+## 🚀 BƯỚC 3: SETUP DEVELOPMENT WORKFLOW
+
+### Tạo script workflow tự động:
+
+#### Pre-commit hooks setup:
+```bash
+# Tạo pre-commit config
+cat > .pre-commit-config.yaml << 'EOF'
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black
+        language: python
+        files: \.py$
+      - id: isort
+        name: isort
+        entry: isort
+        language: python
+        files: \.py$
+      - id: flake8
+        name: flake8
+        entry: flake8
+        language: python
+        files: \.py$
+EOF
+```
+
+#### Development tasks script:
+```bash
+# Tạo dev-tasks.py
+cat > dev-tasks.py << 'EOF'
+import subprocess
+import sys
+
+def format_code():
+    subprocess.run([sys.executable, "-m", "black", "src/"])
+    subprocess.run([sys.executable, "-m", "isort", "src/"])
+
+def lint_code():
+    subprocess.run([sys.executable, "-m", "flake8", "src/"])
+
+def run_tests():
+    subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"])
+
+def build_app():
+    subprocess.run([sys.executable, "-m", "pyinstaller", "fatigue_app.spec"])
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        task = sys.argv[1]
+        if task == "format":
+            format_code()
+        elif task == "lint":
+            lint_code()
+        elif task == "test":
+            run_tests()
+        elif task == "build":
+            build_app()
+        else:
+            print("Available tasks: format, lint, test, build")
+EOF
+```
+
+## 🔧 BƯỚC 4: DEVELOPMENT COMMANDS
+
+### Code quality workflow:
+```bash
+# 1. Format code
+python dev-tasks.py format
+
+# 2. Check linting
+python dev-tasks.py lint
+
+# 3. Run tests
+python dev-tasks.py test
+
+# 4. Build application
+python dev-tasks.py build
+```
+
+### Manual commands:
+```bash
+# Format và check code
+black src/ && isort src/ && flake8 src/
+
+# Run tests với coverage
+pytest --cov=src tests/ --cov-report=html
+
+# Build executable
+pyinstaller --clean fatigue_app.spec
+
+# Build installer (Windows)
+.\build-installer-windows.ps1
+```
+
+## 🏗️ BƯỚC 5: BUILD EXECUTABLE
+
+### Windows build:
+```bash
+# Build với PowerShell script
+.\build-windows.ps1 -Clean -Verbose
+
+# Build installer
+.\build-installer-windows.ps1
+
+# All-in-one build
+.\build-all.ps1 -Platform windows -Installer -Clean
+```
+
+### Cross-platform build preparation:
+```bash
+# macOS (cần macOS system)
+chmod +x build-macos.sh
+./build-macos.sh
+
+# Linux (cần Linux system)  
+chmod +x build-linux.sh
+./build-linux.sh
+```
+
+## ❗ TROUBLESHOOTING DEVELOPMENT ISSUES
+
+### 🔴 PyInstaller build errors:
+```
+ModuleNotFoundError during build
+```
+**Giải pháp**: 
+1. Thêm missing module vào hiddenimports trong fatigue_app.spec
+2. Kiểm tra tất cả imports trong source code
+3. Cài lại PyInstaller: `pip install --force-reinstall pyinstaller`
+
+### 🔴 Black và Flake8 conflicts:
+```
+E203 whitespace before ':'
+W503 line break before binary operator
+```
+**Giải pháp**: Thêm vào .flake8 config:
+```ini
+[flake8]
+ignore = E203, W503
+max-line-length = 88
+```
+
+### 🔴 Pytest không tìm thấy modules:
+```
+ModuleNotFoundError: No module named 'src'
+```
+**Giải pháp**: Tạo pytest.ini:
+```ini
+[tool:pytest]
+python_paths = .
+testpaths = tests
+pythonpath = src
+```
+
+### 🔴 Sphinx documentation errors:
+```
+autodoc: failed to import module
+```
+**Giải pháp**: Thêm sys.path trong docs/conf.py:
+```python
+import sys
+import os
+sys.path.insert(0, os.path.abspath('../src'))
+```
+
+## 🔍 TESTING DEVELOPMENT SETUP
+
+### Test tất cả tools:
+```python
+# Test script: test_dev_setup.py
+import subprocess
+import sys
+
+def test_tool(tool_name, command):
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        print(f"✅ {tool_name}: OK")
+        return True
+    except Exception as e:
+        print(f"❌ {tool_name}: {e}")
+        return False
+
+# Test all tools
+tools = [
+    ("PyInstaller", [sys.executable, "-m", "pyinstaller", "--version"]),
+    ("Black", [sys.executable, "-m", "black", "--version"]),
+    ("Flake8", [sys.executable, "-m", "flake8", "--version"]), 
+    ("Pytest", [sys.executable, "-m", "pytest", "--version"]),
+    ("Isort", [sys.executable, "-m", "isort", "--version"]),
+]
+
+for tool_name, command in tools:
+    test_tool(tool_name, command)
+```
+
+## 📊 DEVELOPMENT METRICS
+
+### Code quality metrics để track:
+- **Test coverage**: Target ≥ 80%
+- **Code complexity**: Keep functions under 10 complexity
+- **Import organization**: All imports properly sorted
+- **Code style**: 100% Black formatted
+- **Linting**: Zero Flake8 warnings
+- **Build success**: Executable builds without errors
+
+## 🎯 BEST PRACTICES CHO DEVELOPERS
+
+### 1. Workflow hàng ngày:
+```bash
+# Bắt đầu work session
+.venv\Scripts\activate
+git pull origin main
+
+# Trước khi commit
+python dev-tasks.py format
+python dev-tasks.py lint  
+python dev-tasks.py test
+
+# Build để test
+python dev-tasks.py build
+```
+
+### 2. Code organization:
+- Luôn viết docstrings cho functions
+- Viết unit tests cho logic mới
+- Keep functions small và focused
+- Use type hints khi có thể
+
+### 3. Version control:
+- Commit regularly với descriptive messages
+- Run tests trước khi push
+- Use feature branches cho new features
+- Tag releases với semantic versioning
+
+---
+📅 **Cập nhật**: November 29, 2025  
+👨‍💻 **Target audience**: Python developers  
+🛠️ **Tools included**: 13 development tools + workflow automation  
+🎯 **Purpose**: Professional development environment setup

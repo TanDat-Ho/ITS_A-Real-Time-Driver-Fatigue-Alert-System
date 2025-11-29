@@ -1,0 +1,268 @@
+# 🚀 HƯỚNG DẪN CÀI ĐẶT CHI TIẾT - DRIVER FATIGUE DETECTION SYSTEM
+# Production Dependencies - Dành cho người dùng cuối
+
+## 📋 YÊU CẦU HỆ THỐNG
+- Python 3.8 → 3.11 (BẮT BUỘC - mediapipe chỉ hỗ trợ các version này)
+- RAM: Tối thiểu 4GB, khuyến nghị 8GB+  
+- Camera: Webcam hoặc camera USB
+- OS: Windows 10/11, macOS 10.13+, Ubuntu 18.04+
+
+## 🔧 BƯỚC 1: KIỂM TRA VÀ CÀI ĐẶT PYTHON
+
+### Kiểm tra Python version hiện tại:
+```bash
+python --version
+# Hoặc trên Windows:
+py --version
+```
+
+### ❌ Nếu không có Python hoặc sai version:
+
+#### 📥 Tải Python 3.11 (Khuyến nghị):
+- **Link tải**: https://www.python.org/downloads/release/python-3118/
+- **Chọn**: Windows installer (64-bit) - file tên `python-3.11.8-amd64.exe`
+
+#### ⚙️ Cài đặt Python:
+1. Chạy file installer vừa tải
+2. ✅ **QUAN TRỌNG**: Tick vào "Add Python 3.11 to PATH"
+3. Chọn "Install Now" hoặc "Customize installation" (nếu muốn tùy chỉnh)
+4. Chờ cài đặt hoàn tất
+
+#### ✅ Kiểm tra sau khi cài:
+```bash
+py -3.11 --version
+# Kết quả mong muốn: Python 3.11.8
+```
+
+## 🏠 BƯỚC 2: TẠO MÔI TRƯỜNG ẢO (VIRTUAL ENVIRONMENT)
+
+### Tại sao cần môi trường ảo?
+- Tránh xung đột package với các project khác
+- Dễ dàng quản lý dependencies
+- Có thể xóa/tạo lại môi trường mà không ảnh hưởng hệ thống
+
+### Tạo môi trường ảo:
+```bash
+# Tạo môi trường ảo tên ".venv"
+py -3.11 -m venv .venv
+
+# Hoặc nếu chỉ có 1 Python version:
+python -m venv .venv
+```
+
+### Kích hoạt môi trường ảo:
+
+#### Windows (CMD/PowerShell):
+```bash
+.venv\Scripts\activate
+```
+
+#### Windows (Git Bash):
+```bash
+source .venv/Scripts/activate
+```
+
+#### macOS/Linux:
+```bash
+source .venv/bin/activate
+```
+
+### ✅ Kiểm tra kích hoạt thành công:
+Dòng lệnh sẽ thay đổi thành: `(.venv) C:\your\path>`
+
+### 🛑 Tắt môi trường ảo (khi cần):
+```bash
+deactivate
+```
+
+## 🔄 BƯỚC 3: CÀI ĐẶT DEPENDENCIES
+
+### Đảm bảo môi trường ảo đã được kích hoạt (có (.venv) ở đầu dòng lệnh)
+
+### Cài đặt tất cả dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### Hoặc cài đặt từng package một cách chi tiết:
+
+#### 1. OpenCV - Xử lý ảnh & video (Package chính):
+```bash
+pip install opencv-python>=4.8.0
+```
+**Mục đích**: Capture video từ camera, xử lý frame, resize, convert color space
+
+#### 2. MediaPipe - AI Face Detection (Core AI):
+```bash
+pip install mediapipe==0.10.14
+```
+**Mục đích**: Phát hiện 468 landmarks trên khuôn mặt, tính toán EAR, MAR cho drowsiness detection
+
+#### 3. NumPy - Tính toán ma trận (Foundation):
+```bash
+pip install "numpy>=1.21.0,<2.0.0"
+```
+**Mục đích**: Xử lý arrays, tính khoảng cách Euclid, các phép toán vector cho landmarks
+
+#### 4. Imutils - OpenCV utilities (Helper):
+```bash
+pip install imutils>=0.5.4
+```
+**Mục đích**: Resize, rotate, convert ảnh dễ dàng hơn so với OpenCV thuần
+
+#### 5. Pillow - Image processing (Support):
+```bash
+pip install Pillow>=9.0.0
+```
+**Mục đích**: Xử lý ảnh, tạo thumbnail, convert format, load/save images
+
+#### 6. Pygame - Audio system (Alert):
+```bash
+pip install pygame>=2.1.0
+```
+**Mục đích**: Phát âm thanh cảnh báo khi phát hiện drowsiness, quản lý audio files
+
+#### 7. Pynput - System input (Control):
+```bash
+pip install pynput>=1.7.6
+```
+**Mục đích**: Capture keyboard/mouse input, điều khiển hệ thống, hotkeys
+
+## 📱 BƯỚC 4: CẤU HÌNH VS CODE (Khuyến nghị)
+
+### Tự động chọn Python interpreter:
+1. Mở project trong VS Code
+2. Nhấn `Ctrl + Shift + P`
+3. Gõ: "Python: Select Interpreter"
+4. Chọn: `.venv\Scripts\python.exe` (Windows) hoặc `.venv/bin/python` (macOS/Linux)
+
+### Cài đặt VS Code extensions hữu ích:
+- Python (Microsoft)
+- Python Debugger
+- autoDocstring
+- Python Indent
+
+## 🎮 BƯỚC 5: CHẠY ỨNG DỤNG
+
+### Từ source code:
+```bash
+# Đảm bảo môi trường ảo đã kích hoạt
+(.venv) python src/main.py
+```
+
+### Kiểm tra camera:
+- Ứng dụng sẽ tự động detect camera (thường camera 0)
+- Nếu không có camera, sẽ hiện thông báo lỗi
+- Cho phép camera access khi browser/OS hỏi
+
+## ❗ KHẮC PHỤC SỰ CỐ THƯỜNG GẶP
+
+### 🔴 Lỗi MediaPipe không cài được:
+```
+ERROR: Could not find a version that satisfies the requirement mediapipe
+```
+**Nguyên nhân**: Python version không hỗ trợ (< 3.8 hoặc >= 3.12)
+**Giải pháp**: Cài lại Python 3.11 theo hướng dẫn ở Bước 1
+
+### 🔴 Lỗi OpenCV không import được:
+```
+ImportError: No module named cv2
+```
+**Giải pháp**:
+```bash
+pip uninstall opencv-python
+pip install opencv-python>=4.8.0
+```
+
+### 🔴 Lỗi Permission (Windows):
+```
+ERROR: Microsoft Visual C++ 14.0 is required
+```
+**Giải pháp**: 
+- Tải Visual Studio Build Tools: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
+- Hoặc cài Visual Studio Community
+
+### 🔴 Lỗi Camera không detect:
+```
+Camera not found or access denied
+```
+**Giải pháp**:
+1. Kiểm tra camera đã kết nối
+2. Tắt các ứng dụng khác đang dùng camera
+3. Cấp quyền camera cho Python/Terminal
+4. Thử đổi camera index (0, 1, 2...)
+
+### 🔴 Lỗi Audio không phát được:
+```
+pygame.error: No audio device found
+```
+**Giải pháp**:
+- Kiểm tra audio drivers
+- Khởi động lại máy
+- Cài lại pygame: `pip install --force-reinstall pygame`
+
+## 📊 KIỂM TRA CÀI ĐẶT THÀNH CÔNG
+
+### Test từng component:
+```python
+# Test OpenCV
+import cv2
+print("OpenCV version:", cv2.__version__)
+
+# Test MediaPipe  
+import mediapipe as mp
+print("MediaPipe available")
+
+# Test NumPy
+import numpy as np
+print("NumPy version:", np.__version__)
+
+# Test Pygame
+import pygame
+pygame.mixer.init()
+print("Pygame audio initialized")
+```
+
+### Chạy test script nhanh:
+```python
+import cv2
+import mediapipe as mp
+
+# Test camera
+cap = cv2.VideoCapture(0)
+if cap.isOpened():
+    print("✅ Camera detected successfully!")
+    cap.release()
+else:
+    print("❌ Camera not found!")
+
+# Test MediaPipe
+mp_face_mesh = mp.solutions.face_mesh
+with mp_face_mesh.FaceMesh() as face_mesh:
+    print("✅ MediaPipe face mesh initialized!")
+```
+
+## 📝 GHI CHÚ QUAN TRỌNG
+
+### 🔒 Bảo mật:
+- Ứng dụng chỉ xử lý local, không upload ảnh lên internet
+- Dữ liệu camera chỉ được xử lý real-time, không lưu trữ
+
+### ⚡ Hiệu năng:
+- Khuyến nghị RAM >= 8GB cho smooth operation
+- CPU: Intel i5/AMD Ryzen 5 hoặc tương đương trở lên
+- GPU không bắt buộc nhưng sẽ giúp xử lý nhanh hơn
+
+### 🔄 Cập nhật:
+```bash
+# Cập nhật tất cả packages
+pip install --upgrade -r requirements.txt
+
+# Cập nhật từng package
+pip install --upgrade opencv-python mediapipe numpy
+```
+
+---
+📅 **Cập nhật**: November 29, 2025  
+🐍 **Python hỗ trợ**: 3.8, 3.9, 3.10, 3.11  
+💻 **OS hỗ trợ**: Windows 10/11, macOS 10.13+, Ubuntu 18.04+

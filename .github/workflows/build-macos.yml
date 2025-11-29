@@ -1,0 +1,234 @@
+name: Build macOS Application
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Build mode (onefile/onedir)'
+        required: false
+        default: 'onefile'
+        type: choice
+        options:
+          - onefile
+          - onedir
+
+env:
+  PYTHON_VERSION: "3.11"
+  APP_NAME: "FatigueDetectionApp"
+  MACOS_MIN_VERSION: "10.14"
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    strategy:
+      matrix:
+        architecture: [x86_64, arm64]
+        
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        # Install create-dmg for DMG creation
+        if ! command -v create-dmg &> /dev/null; then
+          brew install create-dmg
+        fi
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/Library/Caches/pip
+        key: ${{ runner.os }}-pip-${{ matrix.architecture }}-${{ hashFiles('**/requirements-build.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.architecture }}-
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements-build.txt
+
+    - name: Set architecture-specific variables
+      run: |
+        if [ "${{ matrix.architecture }}" = "arm64" ]; then
+          echo "ARCHFLAGS=-arch arm64" >> $GITHUB_ENV
+          echo "CMAKE_OSX_ARCHITECTURES=arm64" >> $GITHUB_ENV
+        else
+          echo "ARCHFLAGS=-arch x86_64" >> $GITHUB_ENV
+          echo "CMAKE_OSX_ARCHITECTURES=x86_64" >> $GITHUB_ENV
+        fi
+        echo "MACOSX_DEPLOYMENT_TARGET=${{ env.MACOS_MIN_VERSION }}" >> $GITHUB_ENV
+
+    - name: Run tests
+      run: |
+        if [ -d "tests" ]; then
+          python -m pytest tests/ -v --tb=short
+        else
+          echo "No tests found, skipping..."
+        fi
+      continue-on-error: true
+
+    - name: Build application
+      run: |
+        chmod +x build-linux.sh
+        BUILD_MODE="${{ github.event.inputs.build_mode || 'onefile' }}"
+        ./build-linux.sh --$BUILD_MODE --skip-tests
+
+    - name: Test executable/app bundle
+      run: |
+        if [ -d "dist/${{ env.APP_NAME }}.app" ]; then
+          echo "✅ App bundle created: dist/${{ env.APP_NAME }}.app"
+          ls -la "dist/${{ env.APP_NAME }}.app"
+        elif [ -f "dist/${{ env.APP_NAME }}" ]; then
+          echo "✅ Executable created: dist/${{ env.APP_NAME }}"
+          ls -lh "dist/${{ env.APP_NAME }}"
+          file "dist/${{ env.APP_NAME }}"
+        else
+          echo "❌ No executable or app bundle found"
+          exit 1
+        fi
+
+    - name: Sign application (if certificates available)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      continue-on-error: true
+      run: |
+        # Only run if signing certificates are available
+        if [ -n "${{ secrets.MACOS_CERTIFICATE }}" ]; then
+          echo "Code signing certificates found, signing application..."
+          
+          # Import certificates
+          echo "${{ secrets.MACOS_CERTIFICATE }}" | base64 --decode > certificate.p12
+          security create-keychain -p "${{ secrets.MACOS_CI_KEYCHAIN_PWD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ secrets.MACOS_CI_KEYCHAIN_PWD }}" build.keychain
+          security import certificate.p12 -k build.keychain -P "${{ secrets.MACOS_CERTIFICATE_PWD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.MACOS_CI_KEYCHAIN_PWD }}" build.keychain
+          
+          # Sign the application
+          if [ -d "dist/${{ env.APP_NAME }}.app" ]; then
+            codesign --force --options runtime --entitlements entitlements.plist --sign "${{ secrets.MACOS_CERTIFICATE_NAME }}" "dist/${{ env.APP_NAME }}.app"
+          elif [ -f "dist/${{ env.APP_NAME }}" ]; then
+            codesign --force --options runtime --sign "${{ secrets.MACOS_CERTIFICATE_NAME }}" "dist/${{ env.APP_NAME }}"
+          fi
+        else
+          echo "No code signing certificates available, skipping signing"
+        fi
+
+    - name: Create DMG
+      if: matrix.architecture == 'x86_64'
+      run: |
+        ./build-linux.sh --package-only
+
+    - name: Notarize DMG (if certificates available)
+      if: matrix.architecture == 'x86_64' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      continue-on-error: true
+      run: |
+        if [ -n "${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}" ]; then
+          echo "Notarizing DMG..."
+          DMG_FILE=$(ls *.dmg | head -1)
+          if [ -f "$DMG_FILE" ]; then
+            xcrun altool --notarize-app --primary-bundle-id "com.fatiguedetection.app" --username "${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}" --password "${{ secrets.MACOS_NOTARIZATION_PWD }}" --file "$DMG_FILE"
+          fi
+        else
+          echo "No notarization credentials available, skipping notarization"
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-${{ matrix.architecture }}-build
+        path: |
+          dist/
+          *.dmg
+        retention-days: 7
+
+    - name: Create Release Assets
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        TAG="${{ github.ref_name }}"
+        ARCH="${{ matrix.architecture }}"
+        
+        # Compress app bundle or executable
+        if [ -d "dist/${{ env.APP_NAME }}.app" ]; then
+          tar -czf "${{ env.APP_NAME }}-$TAG-macos-$ARCH.tar.gz" -C dist/ "${{ env.APP_NAME }}.app"
+        elif [ -f "dist/${{ env.APP_NAME }}" ]; then
+          tar -czf "${{ env.APP_NAME }}-$TAG-macos-$ARCH.tar.gz" -C dist/ "${{ env.APP_NAME }}"
+        fi
+        
+        # Rename DMG (only for x86_64)
+        if [ "$ARCH" = "x86_64" ] && [ -f "${{ env.APP_NAME }}-"*".dmg" ]; then
+          mv "${{ env.APP_NAME }}-"*".dmg" "${{ env.APP_NAME }}-$TAG-macos.dmg"
+        fi
+
+    - name: Upload to Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ env.APP_NAME }}-*.tar.gz
+          ${{ env.APP_NAME }}-*.dmg
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  universal-binary:
+    runs-on: macos-latest
+    needs: build-macos
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download x86_64 build
+      uses: actions/download-artifact@v3
+      with:
+        name: macos-x86_64-build
+        path: dist-x86_64/
+
+    - name: Download arm64 build
+      uses: actions/download-artifact@v3
+      with:
+        name: macos-arm64-build
+        path: dist-arm64/
+
+    - name: Create universal binary
+      run: |
+        # Create universal binary if both architectures built successfully
+        if [ -f "dist-x86_64/${{ env.APP_NAME }}" ] && [ -f "dist-arm64/${{ env.APP_NAME }}" ]; then
+          echo "Creating universal binary..."
+          mkdir -p dist-universal
+          lipo -create "dist-x86_64/${{ env.APP_NAME }}" "dist-arm64/${{ env.APP_NAME }}" -output "dist-universal/${{ env.APP_NAME }}"
+          
+          # Verify universal binary
+          file "dist-universal/${{ env.APP_NAME }}"
+          lipo -info "dist-universal/${{ env.APP_NAME }}"
+          
+          # Create archive
+          TAG="${{ github.ref_name }}"
+          tar -czf "${{ env.APP_NAME }}-$TAG-macos-universal.tar.gz" -C dist-universal/ "${{ env.APP_NAME }}"
+        fi
+
+    - name: Upload universal binary to release
+      if: success()
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ env.APP_NAME }}-*-universal.tar.gz
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
